@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none';" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple Markdown Viewer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="toolbar">
+        <div class="title-block">
+          <h1>Markdown Viewer</h1>
+          <p id="fileLabel">새 문서</p>
+        </div>
+        <div class="actions" aria-label="문서 작업">
+          <button id="importButton" type="button">가져오기</button>
+          <button id="exportMarkdownButton" type="button">MD 내보내기</button>
+          <button id="exportHtmlButton" type="button">HTML 내보내기</button>
+          <button id="copyMarkdownButton" type="button">원문 복사</button>
+          <button id="copyTextButton" type="button">텍스트 복사</button>
+          <button id="themeButton" type="button" aria-pressed="false">다크 모드</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="editor-panel" aria-label="Markdown 원문">
+          <div class="panel-heading">
+            <h2>Markdown</h2>
+            <span id="saveState">편집 가능</span>
+          </div>
+          <textarea id="markdownInput" spellcheck="false"># Simple Markdown Viewer
+
+왼쪽에 Markdown을 입력하거나 **가져오기**로 `.md` 파일을 열면 오른쪽에 미리보기가 표시됩니다.
+
+- 가져오기
+- 내보내기
+- 복사
+- 다크 모드 / 라이트 모드
+</textarea>
+        </section>
+
+        <section class="preview-panel" aria-label="Markdown 미리보기">
+          <div class="panel-heading">
+            <h2>Preview</h2>
+            <span id="wordCount">0자</span>
+          </div>
+          <article id="preview" class="markdown-body"></article>
+        </section>
+      </main>
+
+      <footer class="statusbar">
+        <span id="statusMessage">준비됨</span>
+      </footer>
+    </div>
+
+    <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+    <script src="../node_modules/marked/marked.min.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

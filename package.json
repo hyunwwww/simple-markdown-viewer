@@ -1,0 +1,43 @@
+{
+  "name": "simple-markdown-viewer",
+  "version": "0.1.0",
+  "description": "A small installable Markdown viewer with import, export, copy, and light/dark modes.",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer.js",
+    "smoke": "electron . --smoke-test",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.4",
+    "marked": "^15.0.7"
+  },
+  "devDependencies": {
+    "electron": "^41.3.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.local.simplemarkdownviewer",
+    "productName": "Simple Markdown Viewer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

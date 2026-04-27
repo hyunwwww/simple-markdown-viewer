@@ -1,0 +1,165 @@
+const markdownInput = document.querySelector("#markdownInput");
+const preview = document.querySelector("#preview");
+const fileLabel = document.querySelector("#fileLabel");
+const statusMessage = document.querySelector("#statusMessage");
+const wordCount = document.querySelector("#wordCount");
+const saveState = document.querySelector("#saveState");
+const importButton = document.querySelector("#importButton");
+const exportMarkdownButton = document.querySelector("#exportMarkdownButton");
+const exportHtmlButton = document.querySelector("#exportHtmlButton");
+const copyMarkdownButton = document.querySelector("#copyMarkdownButton");
+const copyTextButton = document.querySelector("#copyTextButton");
+const themeButton = document.querySelector("#themeButton");
+
+let currentFileName = "document.md";
+let currentFilePath = null;
+
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+  mangle: false,
+  headerIds: false,
+});
+
+function renderMarkdown() {
+  const markdown = markdownInput.value;
+  const unsafeHtml = marked.parse(markdown);
+  const cleanHtml = DOMPurify.sanitize(unsafeHtml, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ["style", "script", "iframe", "object", "embed"],
+    FORBID_ATTR: ["style", "onerror", "onclick", "onload"],
+  });
+
+  preview.innerHTML = cleanHtml;
+  wordCount.textContent = `${markdown.length.toLocaleString("ko-KR")}자`;
+  saveState.textContent = currentFilePath ? "수정 가능" : "새 문서";
+}
+
+function setStatus(message) {
+  statusMessage.textContent = message;
+}
+
+function setFile(fileName, filePath) {
+  currentFileName = fileName || "document.md";
+  currentFilePath = filePath || null;
+  fileLabel.textContent = currentFilePath ? currentFileName : "새 문서";
+}
+
+function getPreviewText() {
+  return preview.innerText.trim();
+}
+
+function makeHtmlDocument() {
+  const title = escapeHtml(currentFileName.replace(/\.(md|markdown|txt)$/i, ""));
+  return `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+  </head>
+  <body>
+${preview.innerHTML}
+  </body>
+</html>
+`;
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function defaultExportName(extension) {
+  const baseName = currentFileName.replace(/\.(md|markdown|txt|html)$/i, "") || "document";
+  return `${baseName}.${extension}`;
+}
+
+async function handleImport() {
+  try {
+    const file = await window.markdownViewer.openFile();
+    if (!file) {
+      setStatus("가져오기를 취소했습니다.");
+      return;
+    }
+
+    markdownInput.value = file.content;
+    setFile(file.fileName, file.filePath);
+    renderMarkdown();
+    setStatus(`${file.fileName} 파일을 가져왔습니다.`);
+  } catch (error) {
+    setStatus(`가져오기 실패: ${error.message}`);
+  }
+}
+
+async function handleExportMarkdown() {
+  await exportContent(markdownInput.value, defaultExportName("md"));
+}
+
+async function handleExportHtml() {
+  await exportContent(makeHtmlDocument(), defaultExportName("html"));
+}
+
+async function exportContent(content, defaultPath) {
+  try {
+    const saved = await window.markdownViewer.saveFile({ content, defaultPath });
+    if (!saved) {
+      setStatus("내보내기를 취소했습니다.");
+      return;
+    }
+
+    setStatus(`${saved.fileName} 파일로 내보냈습니다.`);
+  } catch (error) {
+    setStatus(`내보내기 실패: ${error.message}`);
+  }
+}
+
+async function copyMarkdown() {
+  await copyText(markdownInput.value, "Markdown 원문을 복사했습니다.");
+}
+
+async function copyPreviewText() {
+  await copyText(getPreviewText(), "렌더링된 텍스트를 복사했습니다.");
+}
+
+async function copyText(text, successMessage) {
+  try {
+    await window.markdownViewer.copyText(text);
+    setStatus(successMessage);
+  } catch (error) {
+    setStatus(`복사 실패: ${error.message}`);
+  }
+}
+
+function toggleTheme() {
+  const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = nextTheme;
+  themeButton.textContent = nextTheme === "dark" ? "라이트 모드" : "다크 모드";
+  themeButton.setAttribute("aria-pressed", String(nextTheme === "dark"));
+  localStorage.setItem("theme", nextTheme);
+}
+
+function restoreTheme() {
+  const storedTheme = localStorage.getItem("theme");
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = storedTheme || (prefersDark ? "dark" : "light");
+  document.documentElement.dataset.theme = theme;
+  themeButton.textContent = theme === "dark" ? "라이트 모드" : "다크 모드";
+  themeButton.setAttribute("aria-pressed", String(theme === "dark"));
+}
+
+markdownInput.addEventListener("input", renderMarkdown);
+importButton.addEventListener("click", handleImport);
+exportMarkdownButton.addEventListener("click", handleExportMarkdown);
+exportHtmlButton.addEventListener("click", handleExportHtml);
+copyMarkdownButton.addEventListener("click", copyMarkdown);
+copyTextButton.addEventListener("click", copyPreviewText);
+themeButton.addEventListener("click", toggleTheme);
+
+restoreTheme();
+renderMarkdown();
+window.__markdownViewerReady = true;
