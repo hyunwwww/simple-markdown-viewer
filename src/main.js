@@ -17,7 +17,7 @@ function createWindow() {
     minWidth: 920,
     minHeight: 620,
     show: false,
-    backgroundColor: "#f7f7f3",
+    backgroundColor: "#f9fcf8",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -54,27 +54,59 @@ function createWindow() {
           const editor = document.querySelector('#markdownInput');
           const preview = document.querySelector('#preview');
           document.documentElement.dataset.theme = 'light';
-          const inlineCode = document.querySelector('.markdown-body p code');
-          const baseTextColor = getComputedStyle(document.body).color;
-          const inlineCodeColor = inlineCode ? getComputedStyle(inlineCode).color : '';
 
           editor.value = Array.from({ length: 80 }, (_, index) =>
             index === 5
               ? "'''javascript\\nconst value = index + 1;\\nconsole.log(value);\\n'''"
-              : "## Section " + index + "\\n\\n''accent'' text with \`inline code\`."
-          ).join("\\n\\n").replaceAll("'''", "\`\`\`");
+              : "## Section " + index + "\\n\\n''accent'' text with \`inline code\`.\\n\\n> quoted accent"
+          ).join("\\n\\n");
           editor.dispatchEvent(new Event('input', { bubbles: true }));
           editor.scrollTop = editor.scrollHeight;
           editor.dispatchEvent(new Event('scroll', { bubbles: true }));
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+          const lightBodyStyle = getComputedStyle(document.body);
+          const lightTextColor = lightBodyStyle.color;
+          const inlineCode = document.querySelector('.markdown-body p code');
+          const quoteAccent = document.querySelector('.quote-accent');
+          const blockquote = document.querySelector('.markdown-body blockquote');
+          const codeBlock = document.querySelector('.markdown-body pre');
+          const lightInlineCodeStyle = inlineCode ? getComputedStyle(inlineCode) : null;
+          const lightQuoteStyle = quoteAccent ? getComputedStyle(quoteAccent) : null;
+          const lightCodeBlockStyle = codeBlock ? getComputedStyle(codeBlock) : null;
+          const lightBackgroundColor = lightBodyStyle.backgroundColor;
+          const lightInlineCodeColor = lightInlineCodeStyle?.color;
+          const lightInlineCodeBackground = lightInlineCodeStyle?.backgroundColor;
+          const lightQuoteColor = lightQuoteStyle?.color;
+          const lightQuoteBackground = lightQuoteStyle?.backgroundColor;
+
+          document.documentElement.dataset.theme = 'dark';
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          const darkQuoteStyle = quoteAccent ? getComputedStyle(quoteAccent) : null;
+          const darkBlockquoteStyle = blockquote ? getComputedStyle(blockquote) : null;
+          const darkCodeBlockStyle = codeBlock ? getComputedStyle(codeBlock) : null;
+          const darkQuoteColor = darkQuoteStyle?.color;
+          const darkQuoteBackground = darkQuoteStyle?.backgroundColor;
+          const darkBlockquoteColor = darkBlockquoteStyle?.color;
+          const darkBlockquoteBackground = darkBlockquoteStyle?.backgroundColor;
+          const darkCodeBlockBackground = darkCodeBlockStyle?.backgroundColor;
+
           return {
             ready: Boolean(window.__markdownViewerReady),
             preview: preview?.innerText.includes('Section 79'),
-            quoteAccent: Boolean(document.querySelector('.quote-accent')),
+            quoteAccent: Boolean(quoteAccent),
             highlightedCode: Boolean(document.querySelector('pre code.hljs')),
             fixedFrame: getComputedStyle(document.body).overflow === 'hidden',
-            lightInlineCodeVisible: inlineCodeColor !== '' && inlineCodeColor !== baseTextColor,
+            lightBackground: lightBackgroundColor === 'rgb(249, 252, 248)',
+            lightInlineCodeDefault: lightInlineCodeColor === lightTextColor &&
+              lightInlineCodeBackground === 'rgb(249, 252, 248)',
+            lightQuoteDefault: lightQuoteColor === lightTextColor &&
+              lightQuoteBackground === 'rgb(249, 252, 248)',
+            darkQuoteStyle: darkQuoteColor === 'rgb(212, 51, 131)' &&
+              darkQuoteBackground === 'rgb(22, 27, 34)' &&
+              darkBlockquoteColor === 'rgb(112, 146, 190)' &&
+              darkBlockquoteBackground === 'rgb(22, 27, 34)',
+            darkCodeBlockStyle: darkCodeBlockBackground === 'rgb(22, 27, 34)',
             linkedScrollReady: preview.scrollTop > 0,
             fontStack: getComputedStyle(document.body).fontFamily.includes('Inter') &&
               getComputedStyle(document.body).fontFamily.includes('Noto Sans KR')

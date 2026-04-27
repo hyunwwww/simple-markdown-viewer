@@ -24,7 +24,7 @@ marked.setOptions({
 
 function renderMarkdown() {
   const markdown = markdownInput.value;
-  const unsafeHtml = marked.parse(markdown);
+  const unsafeHtml = marked.parse(normalizeMarkdownFences(markdown));
   const cleanHtml = DOMPurify.sanitize(unsafeHtml, {
     USE_PROFILES: { html: true },
     FORBID_TAGS: ["style", "script", "iframe", "object", "embed"],
@@ -37,6 +37,30 @@ function renderMarkdown() {
   syncScrollPosition(markdownInput, preview);
   wordCount.textContent = `${markdown.length.toLocaleString("ko-KR")}자`;
   saveState.textContent = currentFilePath ? "수정 가능" : "새 문서";
+}
+
+function normalizeMarkdownFences(markdown) {
+  let inApostropheFence = false;
+
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      const openMatch = trimmed.match(/^'''([\w#+.-]+)?\s*$/);
+
+      if (!inApostropheFence && openMatch) {
+        inApostropheFence = true;
+        return `\`\`\`${openMatch[1] || ""}`;
+      }
+
+      if (inApostropheFence && trimmed === "'''") {
+        inApostropheFence = false;
+        return "```";
+      }
+
+      return line;
+    })
+    .join("\n");
 }
 
 function decorateQuoteAccent(root) {
