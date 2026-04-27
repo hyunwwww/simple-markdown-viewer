@@ -49,15 +49,37 @@ function createWindow() {
 
     try {
       const checks = await mainWindow.webContents.executeJavaScript(
-        `document.fonts.ready.then(() => ({
-          ready: Boolean(window.__markdownViewerReady),
-          preview: document.querySelector('#preview')?.innerText.includes('Simple Markdown Viewer'),
-          quoteAccent: Boolean(document.querySelector('.quote-accent')),
-          highlightedCode: Boolean(document.querySelector('pre code.hljs')),
-          fixedFrame: getComputedStyle(document.body).overflow === 'hidden',
-          fontStack: getComputedStyle(document.body).fontFamily.includes('Inter') &&
-            getComputedStyle(document.body).fontFamily.includes('Noto Sans KR')
-        }))`,
+        `(async () => {
+          await document.fonts.ready;
+          const editor = document.querySelector('#markdownInput');
+          const preview = document.querySelector('#preview');
+          document.documentElement.dataset.theme = 'light';
+          const inlineCode = document.querySelector('.markdown-body p code');
+          const baseTextColor = getComputedStyle(document.body).color;
+          const inlineCodeColor = inlineCode ? getComputedStyle(inlineCode).color : '';
+
+          editor.value = Array.from({ length: 80 }, (_, index) =>
+            index === 5
+              ? "'''javascript\\nconst value = index + 1;\\nconsole.log(value);\\n'''"
+              : "## Section " + index + "\\n\\n''accent'' text with \`inline code\`."
+          ).join("\\n\\n").replaceAll("'''", "\`\`\`");
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+          editor.scrollTop = editor.scrollHeight;
+          editor.dispatchEvent(new Event('scroll', { bubbles: true }));
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+          return {
+            ready: Boolean(window.__markdownViewerReady),
+            preview: preview?.innerText.includes('Section 79'),
+            quoteAccent: Boolean(document.querySelector('.quote-accent')),
+            highlightedCode: Boolean(document.querySelector('pre code.hljs')),
+            fixedFrame: getComputedStyle(document.body).overflow === 'hidden',
+            lightInlineCodeVisible: inlineCodeColor !== '' && inlineCodeColor !== baseTextColor,
+            linkedScrollReady: preview.scrollTop > 0,
+            fontStack: getComputedStyle(document.body).fontFamily.includes('Inter') &&
+              getComputedStyle(document.body).fontFamily.includes('Noto Sans KR')
+          };
+        })()`,
         true,
       );
       const failedChecks = Object.entries(checks)

@@ -13,6 +13,7 @@
   --surface: #ffffff;
   --surface-muted: #edf1f2;
   --code-bg: #161b22;
+  --code-text: #e6edf3;
   --border: #ccd5d8;
   --text: #202425;
   --muted: #626d70;
@@ -31,6 +32,7 @@
   --surface: #0d1117;
   --surface-muted: #161b22;
   --code-bg: #161b22;
+  --code-text: #e6edf3;
   --border: #30363d;
   --text: #e6edf3;
   --muted: #8b949e;
@@ -201,7 +203,7 @@ textarea:focus-visible {
   border-radius: 4px;
   padding: 2px 5px;
   background: var(--code-bg);
-  color: var(--text);
+  color: var(--code-text);
 }
 
 .markdown-body pre {

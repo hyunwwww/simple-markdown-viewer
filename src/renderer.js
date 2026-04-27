@@ -13,6 +13,7 @@ const themeButton = document.querySelector("#themeButton");
 
 let currentFileName = "document.md";
 let currentFilePath = null;
+let isSyncingScroll = false;
 
 marked.setOptions({
   breaks: true,
@@ -33,6 +34,7 @@ function renderMarkdown() {
   preview.innerHTML = cleanHtml;
   decorateQuoteAccent(preview);
   highlightCodeBlocks(preview);
+  syncScrollPosition(markdownInput, preview);
   wordCount.textContent = `${markdown.length.toLocaleString("ko-KR")}자`;
   saveState.textContent = currentFilePath ? "수정 가능" : "새 문서";
 }
@@ -103,6 +105,29 @@ function highlightCodeBlocks(root) {
     }
 
     hljs.highlightElement(block);
+  });
+}
+
+function syncScrollPosition(source, target) {
+  const sourceScrollable = source.scrollHeight - source.clientHeight;
+  const targetScrollable = target.scrollHeight - target.clientHeight;
+  if (sourceScrollable <= 0 || targetScrollable <= 0) {
+    return;
+  }
+
+  const ratio = source.scrollTop / sourceScrollable;
+  target.scrollTop = ratio * targetScrollable;
+}
+
+function handleLinkedScroll(source, target) {
+  if (isSyncingScroll) {
+    return;
+  }
+
+  isSyncingScroll = true;
+  requestAnimationFrame(() => {
+    syncScrollPosition(source, target);
+    isSyncingScroll = false;
   });
 }
 
@@ -223,6 +248,8 @@ function restoreTheme() {
 }
 
 markdownInput.addEventListener("input", renderMarkdown);
+markdownInput.addEventListener("scroll", () => handleLinkedScroll(markdownInput, preview));
+preview.addEventListener("scroll", () => handleLinkedScroll(preview, markdownInput));
 importButton.addEventListener("click", handleImport);
 exportMarkdownButton.addEventListener("click", handleExportMarkdown);
 exportHtmlButton.addEventListener("click", handleExportHtml);
