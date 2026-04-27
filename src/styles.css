@@ -1,31 +1,44 @@
+@import url("../node_modules/@fontsource/inter/400.css");
+@import url("../node_modules/@fontsource/inter/500.css");
+@import url("../node_modules/@fontsource/inter/600.css");
+@import url("../node_modules/@fontsource/inter/700.css");
+@import url("../node_modules/@fontsource/noto-sans-kr/400.css");
+@import url("../node_modules/@fontsource/noto-sans-kr/500.css");
+@import url("../node_modules/@fontsource/noto-sans-kr/600.css");
+@import url("../node_modules/@fontsource/noto-sans-kr/700.css");
+
 :root {
   color-scheme: light;
   --bg: #f4f6f7;
   --surface: #ffffff;
   --surface-muted: #edf1f2;
+  --code-bg: #161b22;
   --border: #ccd5d8;
   --text: #202425;
   --muted: #626d70;
   --accent: #1d6f6f;
   --accent-strong: #16595a;
+  --quote-accent: #d43383;
   --button: #ffffff;
   --button-hover: #e9f2f1;
   --shadow: 0 12px 32px rgba(30, 35, 33, 0.08);
-  font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  font-family: "Inter", "Noto Sans KR", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #151715;
-  --surface: #20231f;
-  --surface-muted: #2a2e29;
-  --border: #3b4239;
-  --text: #f1f2ec;
-  --muted: #b5baaf;
-  --accent: #58b8aa;
-  --accent-strong: #7dd4c6;
-  --button: #2a2e29;
-  --button-hover: #33413d;
+  --bg: #0d1117;
+  --surface: #0d1117;
+  --surface-muted: #161b22;
+  --code-bg: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-strong: #79c0ff;
+  --quote-accent: #d43383;
+  --button: #161b22;
+  --button-hover: #21262d;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
 }
 
@@ -37,6 +50,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 button,
@@ -66,8 +80,9 @@ textarea:focus-visible {
 
 .app-shell {
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: 100vh;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .toolbar {
@@ -79,6 +94,9 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow);
+  flex: 0 0 auto;
+  font-size: 15px;
+  z-index: 2;
 }
 
 .title-block {
@@ -87,14 +105,14 @@ textarea:focus-visible {
 
 .title-block h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 21px;
   letter-spacing: 0;
 }
 
 .title-block p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .actions {
@@ -109,6 +127,7 @@ textarea:focus-visible {
   grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
   gap: 16px;
   min-height: 0;
+  overflow: hidden;
   padding: 16px 20px;
 }
 
@@ -181,7 +200,8 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 2px 5px;
-  background: var(--surface-muted);
+  background: var(--code-bg);
+  color: var(--text);
 }
 
 .markdown-body pre {
@@ -189,19 +209,87 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px;
-  background: var(--surface-muted);
+  background: var(--code-bg);
 }
 
 .markdown-body pre code {
   border: 0;
   padding: 0;
+  background: transparent;
 }
 
 .markdown-body blockquote {
   margin-left: 0;
   padding-left: 14px;
-  border-left: 4px solid var(--accent);
-  color: var(--muted);
+  border-left: 4px solid var(--quote-accent);
+  color: var(--quote-accent);
+}
+
+.quote-accent {
+  color: var(--quote-accent);
+  font-weight: 650;
+}
+
+.hljs {
+  color: #c9d1d9;
+  background: transparent;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #ff7b72;
+}
+
+.hljs-literal,
+.hljs-number,
+.hljs-tag .hljs-attr,
+.hljs-template-variable,
+.hljs-variable {
+  color: #79c0ff;
+}
+
+.hljs-doctag,
+.hljs-string,
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: #a5d6ff;
+}
+
+.hljs-built_in,
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #ffa657;
+}
+
+.hljs-attribute,
+.hljs-name,
+.hljs-tag {
+  color: #7ee787;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.hljs-meta,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #d2a8ff;
+}
+
+.hljs-deletion {
+  color: #ffdcd7;
+  background: rgba(248, 81, 73, 0.18);
+}
+
+.hljs-addition {
+  color: #aff5b4;
+  background: rgba(46, 160, 67, 0.18);
 }
 
 .markdown-body table {

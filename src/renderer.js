@@ -31,8 +31,79 @@ function renderMarkdown() {
   });
 
   preview.innerHTML = cleanHtml;
+  decorateQuoteAccent(preview);
+  highlightCodeBlocks(preview);
   wordCount.textContent = `${markdown.length.toLocaleString("ko-KR")}자`;
   saveState.textContent = currentFilePath ? "수정 가능" : "새 문서";
+}
+
+function decorateQuoteAccent(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue.includes("''") || hasCodeAncestor(node)) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) {
+    nodes.push(walker.currentNode);
+  }
+
+  nodes.forEach(replaceQuoteTextNode);
+}
+
+function hasCodeAncestor(node) {
+  let parent = node.parentElement;
+  while (parent) {
+    if (parent.matches("code, pre")) {
+      return true;
+    }
+    parent = parent.parentElement;
+  }
+  return false;
+}
+
+function replaceQuoteTextNode(node) {
+  const regex = /''([^'\n]+?)''/g;
+  const text = node.nodeValue;
+  const fragment = document.createDocumentFragment();
+  let lastIndex = 0;
+  let match = regex.exec(text);
+
+  while (match) {
+    if (match.index > lastIndex) {
+      fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
+    }
+
+    const span = document.createElement("span");
+    span.className = "quote-accent";
+    span.textContent = match[1];
+    fragment.append(span);
+    lastIndex = regex.lastIndex;
+    match = regex.exec(text);
+  }
+
+  if (lastIndex < text.length) {
+    fragment.append(document.createTextNode(text.slice(lastIndex)));
+  }
+
+  node.parentNode.replaceChild(fragment, node);
+}
+
+function highlightCodeBlocks(root) {
+  root.querySelectorAll("pre code").forEach((block) => {
+    const languageClass = [...block.classList].find((className) => className.startsWith("language-"));
+    if (!languageClass) {
+      const highlighted = hljs.highlightAuto(block.textContent);
+      block.innerHTML = highlighted.value;
+      block.classList.add("hljs");
+      return;
+    }
+
+    hljs.highlightElement(block);
+  });
 }
 
 function setStatus(message) {
@@ -145,8 +216,7 @@ function toggleTheme() {
 
 function restoreTheme() {
   const storedTheme = localStorage.getItem("theme");
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const theme = storedTheme || (prefersDark ? "dark" : "light");
+  const theme = storedTheme || "dark";
   document.documentElement.dataset.theme = theme;
   themeButton.textContent = theme === "dark" ? "라이트 모드" : "다크 모드";
   themeButton.setAttribute("aria-pressed", String(theme === "dark"));

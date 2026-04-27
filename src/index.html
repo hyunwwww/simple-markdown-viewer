@@ -34,6 +34,15 @@
 
 왼쪽에 Markdown을 입력하거나 **가져오기**로 `.md` 파일을 열면 오른쪽에 미리보기가 표시됩니다.
 
+''이렇게 감싼 텍스트'' 또는 아래처럼 인용문으로 강조할 수 있습니다.
+
+> 인용문 강조 색상은 #D43383입니다.
+
+```javascript
+const theme = "github-dark";
+console.log(theme);
+```
+
 - 가져오기
 - 내보내기
 - 복사
@@ -57,6 +66,7 @@
 
     <script src="../node_modules/dompurify/dist/purify.min.js"></script>
     <script src="../node_modules/marked/marked.min.js"></script>
+    <script src="../node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

@@ -48,12 +48,23 @@ function createWindow() {
     }
 
     try {
-      const isReady = await mainWindow.webContents.executeJavaScript(
-        "Boolean(window.__markdownViewerReady && document.querySelector('#preview')?.innerText.includes('Simple Markdown Viewer'))",
+      const checks = await mainWindow.webContents.executeJavaScript(
+        `document.fonts.ready.then(() => ({
+          ready: Boolean(window.__markdownViewerReady),
+          preview: document.querySelector('#preview')?.innerText.includes('Simple Markdown Viewer'),
+          quoteAccent: Boolean(document.querySelector('.quote-accent')),
+          highlightedCode: Boolean(document.querySelector('pre code.hljs')),
+          fixedFrame: getComputedStyle(document.body).overflow === 'hidden',
+          fontStack: getComputedStyle(document.body).fontFamily.includes('Inter') &&
+            getComputedStyle(document.body).fontFamily.includes('Noto Sans KR')
+        }))`,
         true,
       );
-      if (!isReady) {
-        throw new Error("renderer ready marker was not found");
+      const failedChecks = Object.entries(checks)
+        .filter(([, passed]) => !passed)
+        .map(([name]) => name);
+      if (failedChecks.length > 0) {
+        throw new Error(`renderer checks failed: ${failedChecks.join(", ")}`);
       }
       console.log("smoke ok: renderer loaded");
       app.quit();

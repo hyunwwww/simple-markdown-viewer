@@ -11,7 +11,11 @@
     "dist": "electron-builder --win nsis"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/noto-sans-kr": "^5.2.9",
+    "@highlightjs/cdn-assets": "^11.11.1",
     "dompurify": "^3.2.4",
+    "highlight.js": "^11.11.1",
     "marked": "^15.0.7"
   },
   "devDependencies": {

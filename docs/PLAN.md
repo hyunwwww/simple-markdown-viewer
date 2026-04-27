@@ -13,6 +13,7 @@
 - Markdown 원문 복사
 - 렌더링된 텍스트 복사
 - 다크 모드와 라이트 모드 전환
+- Inter + Noto Sans KR 로컬 번들 폰트 적용
 - Windows NSIS 설치 파일 생성
 
 ## 기술 선택
@@ -20,6 +21,9 @@
 - Electron: 설치형 Windows 앱 생성이 빠르고 파일 다이얼로그/클립보드/패키징 지원이 직접적이다.
 - marked: Markdown 파싱을 검증된 라이브러리에 맡긴다.
 - DOMPurify: Markdown에서 생성된 HTML을 렌더링 전에 정제한다.
+- highlight.js: 코드 블록의 언어별 구문 강조를 처리한다.
+- @fontsource/inter: Notion 계열 라틴 UI 폰트를 로컬 번들로 제공한다.
+- @fontsource/noto-sans-kr: 한글 UI 폰트를 로컬 번들로 제공한다.
 - electron-builder: `dist/`에 Windows 설치 파일을 만든다.
 
 ## 보안 기준

@@ -9,6 +9,7 @@
 - Markdown 원문 또는 렌더링된 텍스트 복사
 - 다크 모드와 라이트 모드 전환
 - Electron `contextIsolation` 기반의 파일 접근 분리
+- Notion 계열 UI에 가까운 Inter + 한글용 Noto Sans KR 로컬 번들 폰트
 
 ## 실행
 
@@ -42,4 +43,8 @@ dist/Simple Markdown Viewer Setup 0.1.0.exe
 - Electron 41.3.0: 데스크톱 앱 런타임, MIT
 - marked 15.0.12: Markdown 파서, MIT
 - DOMPurify 3.4.1: HTML 정제, MPL-2.0 OR Apache-2.0
+- highlight.js 11.11.1: 코드 구문 강조, BSD-3-Clause
+- @highlightjs/cdn-assets 11.11.1: 브라우저용 highlight.js 번들, BSD-3-Clause
+- @fontsource/inter 5.2.8: Notion 계열 라틴 UI 폰트 번들, OFL-1.1
+- @fontsource/noto-sans-kr 5.2.9: 한글 UI 폰트 번들, OFL-1.1
 - electron-builder 26.8.1: Windows 설치 파일 생성, MIT
