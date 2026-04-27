@@ -5,6 +5,7 @@
 ## 기능
 
 - Markdown 파일 가져오기
+- Windows 탐색기에서 Markdown 파일을 바로 열기
 - 현재 문서 Markdown 또는 HTML 내보내기
 - Markdown 원문 또는 렌더링된 텍스트 복사
 - 다크 모드와 라이트 모드 전환
@@ -31,6 +32,8 @@ npm run dist
 ```
 
 생성물은 `dist/` 폴더에 만들어집니다.
+
+설치 후 `.md` 또는 `.markdown` 파일을 이 앱으로 연결하면 Windows 탐색기에서 파일을 바로 열 수 있습니다.
 
 현재 생성된 설치 파일:
 

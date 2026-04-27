@@ -1,17 +1,21 @@
 const { app, BrowserWindow, dialog, ipcMain, clipboard } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const { fileURLToPath } = require("node:url");
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const markdownFilters = [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }];
+const supportedOpenExtensions = new Set([".md", ".markdown", ".txt"]);
 const exportFilters = [
   { name: "Markdown", extensions: ["md"] },
   { name: "HTML", extensions: ["html"] },
   { name: "Text", extensions: ["txt"] },
 ];
+let mainWindow = null;
+let pendingFilePath = getOpenFilePathFromArgv(process.argv);
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1160,
     height: 780,
     minWidth: 920,
@@ -43,6 +47,12 @@ function createWindow() {
     }
   });
   mainWindow.webContents.once("did-finish-load", async () => {
+    let startupPayload = null;
+    if (pendingFilePath) {
+      startupPayload = await loadFileInWindow(pendingFilePath);
+      pendingFilePath = null;
+    }
+
     if (!isSmokeTest) {
       return;
     }
@@ -53,6 +63,9 @@ function createWindow() {
           await document.fonts.ready;
           const editor = document.querySelector('#markdownInput');
           const preview = document.querySelector('#preview');
+          const fileLabel = document.querySelector('#fileLabel');
+          const startupFileName = ${JSON.stringify(startupPayload?.fileName || null)};
+          const startupFileLoaded = !startupFileName || fileLabel.textContent === startupFileName;
           document.documentElement.dataset.theme = 'light';
 
           editor.value = Array.from({ length: 80 }, (_, index) =>
@@ -93,6 +106,7 @@ function createWindow() {
 
           return {
             ready: Boolean(window.__markdownViewerReady),
+            startupFileLoaded,
             preview: preview?.innerText.includes('Section 79'),
             quoteAccent: Boolean(quoteAccent),
             highlightedCode: Boolean(document.querySelector('pre code.hljs')),
@@ -134,15 +148,48 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "index.html"));
 }
 
-app.whenReady().then(() => {
-  createWindow();
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const filePath = getOpenFilePathFromArgv(argv);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    }
+    if (filePath) {
+      pendingFilePath = filePath;
+      if (mainWindow?.webContents.isLoading()) {
+        return;
+      }
+      loadFileInWindow(filePath);
+      pendingFilePath = null;
     }
   });
-});
+
+  app.on("open-file", (event, filePath) => {
+    event.preventDefault();
+    pendingFilePath = filePath;
+    if (app.isReady() && mainWindow && !mainWindow.webContents.isLoading()) {
+      loadFileInWindow(filePath);
+      pendingFilePath = null;
+    }
+  });
+
+  app.whenReady().then(() => {
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
@@ -161,18 +208,7 @@ ipcMain.handle("file:open", async () => {
     return null;
   }
 
-  const filePath = result.filePaths[0];
-  const stat = await fs.stat(filePath);
-  if (!stat.isFile()) {
-    throw new Error("선택한 경로가 파일이 아닙니다.");
-  }
-
-  const content = await fs.readFile(filePath, "utf8");
-  return {
-    filePath,
-    fileName: path.basename(filePath),
-    content,
-  };
+  return readMarkdownFile(result.filePaths[0]);
 });
 
 ipcMain.handle("file:save", async (_event, payload) => {
@@ -221,4 +257,66 @@ function validateSavePayload(payload) {
     content: payload.content,
     defaultPath,
   };
+}
+
+function getOpenFilePathFromArgv(argv) {
+  for (let index = argv.length - 1; index >= 0; index -= 1) {
+    const arg = argv[index];
+    if (!arg || arg.startsWith("--")) {
+      continue;
+    }
+
+    const filePath = normalizeFilePathArg(arg);
+    if (filePath && supportedOpenExtensions.has(path.extname(filePath).toLowerCase())) {
+      return filePath;
+    }
+  }
+
+  return null;
+}
+
+function normalizeFilePathArg(arg) {
+  if (arg.startsWith("file://")) {
+    try {
+      return fileURLToPath(arg);
+    } catch {
+      return null;
+    }
+  }
+
+  return path.resolve(arg);
+}
+
+async function readMarkdownFile(filePath) {
+  const normalizedPath = normalizeFilePathArg(filePath);
+  if (!normalizedPath || !supportedOpenExtensions.has(path.extname(normalizedPath).toLowerCase())) {
+    throw new Error("Markdown 파일만 열 수 있습니다.");
+  }
+
+  const stat = await fs.stat(normalizedPath);
+  if (!stat.isFile()) {
+    throw new Error("선택한 경로가 파일이 아닙니다.");
+  }
+
+  const content = await fs.readFile(normalizedPath, "utf8");
+  return {
+    filePath: normalizedPath,
+    fileName: path.basename(normalizedPath),
+    content,
+  };
+}
+
+async function loadFileInWindow(filePath) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+
+  try {
+    const payload = await readMarkdownFile(filePath);
+    mainWindow.webContents.send("file:loaded", payload);
+    return payload;
+  } catch (error) {
+    mainWindow.webContents.send("file:error", error.message);
+    return null;
+  }
 }

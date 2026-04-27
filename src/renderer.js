@@ -199,6 +199,15 @@ function defaultExportName(extension) {
   return `${baseName}.${extension}`;
 }
 
+function loadDocument(file, statusPrefix = "파일을 열었습니다") {
+  markdownInput.value = file.content;
+  setFile(file.fileName, file.filePath);
+  markdownInput.scrollTop = 0;
+  preview.scrollTop = 0;
+  renderMarkdown();
+  setStatus(`${statusPrefix}: ${file.fileName}`);
+}
+
 async function handleImport() {
   try {
     const file = await window.markdownViewer.openFile();
@@ -207,10 +216,7 @@ async function handleImport() {
       return;
     }
 
-    markdownInput.value = file.content;
-    setFile(file.fileName, file.filePath);
-    renderMarkdown();
-    setStatus(`${file.fileName} 파일을 가져왔습니다.`);
+    loadDocument(file, "가져오기 완료");
   } catch (error) {
     setStatus(`가져오기 실패: ${error.message}`);
   }
@@ -280,6 +286,8 @@ exportHtmlButton.addEventListener("click", handleExportHtml);
 copyMarkdownButton.addEventListener("click", copyMarkdown);
 copyTextButton.addEventListener("click", copyPreviewText);
 themeButton.addEventListener("click", toggleTheme);
+window.markdownViewer.onFileLoaded((file) => loadDocument(file));
+window.markdownViewer.onFileError((message) => setStatus(`파일 열기 실패: ${message}`));
 
 restoreTheme();
 renderMarkdown();

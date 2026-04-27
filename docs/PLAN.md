@@ -7,6 +7,7 @@
 ## 1차 MVP
 
 - Markdown 파일 가져오기
+- Windows 탐색기에서 Markdown 파일 바로 열기
 - 좌측 원문 편집, 우측 미리보기
 - Markdown 원문 내보내기
 - HTML 내보내기

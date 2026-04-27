@@ -36,6 +36,17 @@
     "win": {
       "target": "nsis"
     },
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown"
+        ],
+        "name": "Markdown Document",
+        "description": "Markdown document",
+        "role": "Viewer"
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "perMachine": false,
