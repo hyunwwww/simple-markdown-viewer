@@ -29,7 +29,7 @@
   --button-hover: #e9f2f1;
   --shadow: 0 12px 32px rgba(30, 35, 33, 0.08);
   --editor-ratio: 50%;
-  --outline-width: 150px;
+  --outline-width: 250px;
   font-family: "Inter", "Noto Sans KR", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
 }
 
@@ -363,14 +363,47 @@ input:focus-visible {
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 14px;
+  padding: 40px 14px 14px;
   background: var(--code-bg);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.markdown-body .code-block {
+  position: relative;
+  margin: 1em 0;
+}
+
+.markdown-body .code-block pre {
+  margin: 0;
 }
 
 .markdown-body pre code {
+  display: block;
   border: 0;
   padding: 0;
   background: transparent;
+  overflow-wrap: inherit;
+  white-space: inherit;
+  word-break: inherit;
+}
+
+.code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: var(--button);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.code-copy-button:hover,
+.code-copy-button:focus-visible {
+  background: var(--button-hover);
 }
 
 .markdown-body blockquote {

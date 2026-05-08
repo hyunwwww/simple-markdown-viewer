@@ -164,6 +164,12 @@ function createWindow() {
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
           const copyMarkdownWorks = statusMessage.textContent.includes('원문을 복사');
+          const codeCopyButton = document.querySelector('.code-copy-button');
+          codeCopyButton?.click();
+          for (let attempt = 0; attempt < 10 && !statusMessage.textContent.includes('코드 블록'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          const copyCodeBlockWorks = statusMessage.textContent.includes('코드 블록을 복사');
 
           const lightBodyStyle = getComputedStyle(document.body);
           const lightTextColor = lightBodyStyle.color;
@@ -179,6 +185,8 @@ function createWindow() {
           const lightInlineCodeBackground = lightInlineCodeStyle?.backgroundColor;
           const lightQuoteColor = lightQuoteStyle?.color;
           const lightQuoteBackground = lightQuoteStyle?.backgroundColor;
+          const codeBlockWrapDefault = lightCodeBlockStyle?.whiteSpace === 'pre-wrap' &&
+            lightCodeBlockStyle?.overflowWrap === 'anywhere';
 
           document.documentElement.dataset.theme = 'dark';
           await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -216,6 +224,9 @@ function createWindow() {
               wordCount.textContent.includes('자'),
             copyTextButtonRemoved: !document.querySelector('#copyTextButton'),
             copyMarkdownWorks,
+            codeCopyButtonPresent: codeCopyButton?.textContent === 'Copy',
+            codeBlockWrapDefault,
+            copyCodeBlockWorks,
             pdfExportButtonPresent: Boolean(exportPdfButton),
             outlineOpenByShortcut,
             outlineItemsReady: outlineItems.length >= 70,

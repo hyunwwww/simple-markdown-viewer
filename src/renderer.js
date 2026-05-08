@@ -39,7 +39,7 @@ const splitRatioStorageKey = "editorPreviewSplitRatio";
 const outlineWidthStorageKey = "outlineWidth";
 const minEditorRatio = 25;
 const maxEditorRatio = 75;
-const defaultOutlineWidth = 150;
+const defaultOutlineWidth = 250;
 const minOutlineWidth = 120;
 const maxOutlineWidth = 360;
 
@@ -156,11 +156,42 @@ function highlightCodeBlocks(root) {
       const highlighted = hljs.highlightAuto(block.textContent);
       block.innerHTML = highlighted.value;
       block.classList.add("hljs");
+      attachCodeCopyButton(block);
       return;
     }
 
     hljs.highlightElement(block);
+    attachCodeCopyButton(block);
   });
+}
+
+function attachCodeCopyButton(block) {
+  const pre = block.closest("pre");
+  if (!pre || pre.parentElement?.classList.contains("code-block")) {
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "code-block";
+  pre.parentNode.insertBefore(wrapper, pre);
+  wrapper.append(pre);
+
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "code-copy-button";
+  copyButton.textContent = "Copy";
+  copyButton.setAttribute("aria-label", "코드 블록 복사");
+  copyButton.addEventListener("click", () => copyCodeBlock(block));
+  wrapper.append(copyButton);
+}
+
+async function copyCodeBlock(block) {
+  try {
+    await window.markdownViewer.copyText(block.textContent);
+    setStatus("코드 블록을 복사했습니다.");
+  } catch (error) {
+    setStatus(`코드 블록 복사 실패: ${error.message}`);
+  }
 }
 
 function syncScrollPosition(source, target) {
@@ -209,6 +240,7 @@ function updateSaveState() {
 
 function getPreviewHtml() {
   const previewClone = preview.cloneNode(true);
+  previewClone.querySelectorAll("button.code-copy-button").forEach((button) => button.remove());
   previewClone.querySelectorAll("mark.search-highlight").forEach((mark) => {
     mark.replaceWith(document.createTextNode(mark.textContent));
   });
@@ -647,6 +679,10 @@ function getPreviewTextNodes() {
       }
 
       if (node.parentElement?.closest("mark.search-highlight")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+
+      if (node.parentElement?.closest(".code-copy-button")) {
         return NodeFilter.FILTER_REJECT;
       }
 
