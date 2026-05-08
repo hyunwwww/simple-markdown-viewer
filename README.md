@@ -6,8 +6,12 @@
 
 - Markdown 파일 가져오기
 - Windows 탐색기에서 Markdown 파일을 바로 열기
-- 현재 문서 Markdown 또는 HTML 내보내기
-- Markdown 원문 또는 렌더링된 텍스트 복사
+- `Ctrl+F` 미리보기 전용 검색과 결과 이동
+- 편집창과 미리보기 창 사이 드래그 크기 조절
+- `F4` 또는 Outline 버튼으로 문서 인덱스 열기
+- `Ctrl+S`로 현재 문서 저장
+- 현재 문서 Markdown, HTML 또는 PDF 내보내기
+- Markdown 원문 복사
 - 다크 모드와 라이트 모드 전환
 - Electron `contextIsolation` 기반의 파일 접근 분리
 - Notion 계열 UI에 가까운 Inter + 한글용 Noto Sans KR 로컬 번들 폰트
@@ -38,7 +42,7 @@ npm run dist
 현재 생성된 설치 파일:
 
 ```text
-dist/Simple Markdown Viewer Setup 0.1.0.exe
+dist/Simple Markdown Viewer Setup 0.1.2.exe
 ```
 
 ## 주요 의존성

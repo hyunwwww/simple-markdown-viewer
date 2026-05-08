@@ -1,6 +1,6 @@
 {
   "name": "simple-markdown-viewer",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "A small installable Markdown viewer with import, export, copy, and light/dark modes.",
   "main": "src/main.js",
   "private": true,
@@ -34,7 +34,8 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "fileAssociations": [
       {
@@ -54,5 +55,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
-  }
+  },
+  "author": "hyunwwww <153688878+hyunwwww@users.noreply.github.com>"
 }
