@@ -4,6 +4,8 @@ const fileLabel = document.querySelector("#fileLabel");
 const statusMessage = document.querySelector("#statusMessage");
 const wordCount = document.querySelector("#wordCount");
 const saveState = document.querySelector("#saveState");
+const documentTabs = document.querySelector("#documentTabs");
+const closeAllTabsButton = document.querySelector("#closeAllTabsButton");
 const outlineButton = document.querySelector("#outlineButton");
 const importButton = document.querySelector("#importButton");
 const exportMarkdownButton = document.querySelector("#exportMarkdownButton");
@@ -26,6 +28,9 @@ const outlineSplitter = document.querySelector("#outlineSplitter");
 let currentFileName = "document.md";
 let currentFilePath = null;
 let isDirty = false;
+let documents = [];
+let activeDocumentId = null;
+let nextDocumentId = 1;
 let isSyncingScroll = false;
 let isSearchOpen = false;
 let searchDebounceId = null;
@@ -52,6 +57,7 @@ marked.setOptions({
 
 function renderMarkdown() {
   const markdown = markdownInput.value;
+  syncActiveDocumentFromEditor({ includeScroll: false });
   const unsafeHtml = marked.parse(normalizeMarkdownFences(markdown));
   const cleanHtml = DOMPurify.sanitize(unsafeHtml, {
     USE_PROFILES: { html: true },
@@ -67,6 +73,7 @@ function renderMarkdown() {
   syncScrollPosition(markdownInput, preview);
   wordCount.textContent = `${markdown.length.toLocaleString("ko-KR")}자`;
   updateSaveState();
+  renderDocumentTabs();
   refreshSearchAfterRender();
 }
 
@@ -221,12 +228,255 @@ function setStatus(message) {
   statusMessage.textContent = message;
 }
 
+function createDocument({
+  fileName = "document.md",
+  filePath = null,
+  content = "",
+  dirty = false,
+  editorScrollTop = 0,
+  previewScrollTop = 0,
+} = {}) {
+  return {
+    id: `document-${nextDocumentId}`,
+    fileName: fileName || "document.md",
+    filePath: filePath || null,
+    content,
+    isDirty: dirty,
+    editorScrollTop,
+    previewScrollTop,
+  };
+}
+
+function addDocument(documentState) {
+  nextDocumentId += 1;
+  documents.push(documentState);
+  return documentState;
+}
+
+function initializeDocuments() {
+  if (documents.length > 0) {
+    return;
+  }
+
+  const initialDocument = addDocument(
+    createDocument({
+      fileName: currentFileName,
+      filePath: currentFilePath,
+      content: markdownInput.value,
+      dirty: isDirty,
+    }),
+  );
+  activeDocumentId = initialDocument.id;
+}
+
+function getActiveDocument() {
+  return documents.find((documentState) => documentState.id === activeDocumentId) || null;
+}
+
+function normalizeDocumentPath(filePath) {
+  return typeof filePath === "string" ? filePath.toLocaleLowerCase("en-US") : "";
+}
+
+function findDocumentByFilePath(filePath) {
+  const normalizedPath = normalizeDocumentPath(filePath);
+  if (!normalizedPath) {
+    return null;
+  }
+
+  return documents.find((documentState) => normalizeDocumentPath(documentState.filePath) === normalizedPath) || null;
+}
+
+function getDocumentDisplayName(documentState) {
+  if (!documentState.filePath && documentState.fileName === "document.md") {
+    return "새 문서";
+  }
+
+  return documentState.fileName || "새 문서";
+}
+
+function updateFileLabel() {
+  fileLabel.textContent = currentFilePath ? currentFileName : "새 문서";
+}
+
+function syncActiveDocumentFromEditor({ includeScroll = true } = {}) {
+  const activeDocument = getActiveDocument();
+  if (!activeDocument) {
+    return;
+  }
+
+  activeDocument.fileName = currentFileName;
+  activeDocument.filePath = currentFilePath;
+  activeDocument.content = markdownInput.value;
+  activeDocument.isDirty = isDirty;
+
+  if (includeScroll) {
+    activeDocument.editorScrollTop = markdownInput.scrollTop;
+    activeDocument.previewScrollTop = preview.scrollTop;
+  }
+}
+
+function selectDocument(documentId, { skipSync = false, status = null } = {}) {
+  const nextDocument = documents.find((documentState) => documentState.id === documentId);
+  if (!nextDocument) {
+    return;
+  }
+
+  if (!skipSync) {
+    syncActiveDocumentFromEditor();
+  }
+
+  activeDocumentId = nextDocument.id;
+  currentFileName = nextDocument.fileName || "document.md";
+  currentFilePath = nextDocument.filePath || null;
+  isDirty = Boolean(nextDocument.isDirty);
+  markdownInput.value = nextDocument.content || "";
+  updateFileLabel();
+  renderMarkdown();
+  markdownInput.scrollTop = nextDocument.editorScrollTop || 0;
+  preview.scrollTop = nextDocument.previewScrollTop || 0;
+  renderDocumentTabs();
+
+  if (status) {
+    setStatus(status);
+  }
+}
+
+function renderDocumentTabs() {
+  documentTabs.replaceChildren();
+
+  documents.forEach((documentState) => {
+    const tab = document.createElement("div");
+    const isActive = documentState.id === activeDocumentId;
+    const displayName = getDocumentDisplayName(documentState);
+    tab.className = `document-tab${isActive ? " is-active" : ""}`;
+    tab.dataset.documentId = documentState.id;
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(isActive));
+    tab.setAttribute("tabindex", isActive ? "0" : "-1");
+    tab.setAttribute("title", displayName);
+
+    const title = document.createElement("span");
+    title.className = "document-tab-title";
+    title.textContent = displayName;
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "document-tab-close";
+    closeButton.textContent = "×";
+    closeButton.setAttribute("aria-label", `${displayName} 닫기`);
+    closeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closeDocument(documentState.id);
+    });
+
+    tab.append(title, closeButton);
+    tab.addEventListener("click", () => selectDocument(documentState.id));
+    tab.addEventListener("keydown", handleDocumentTabKeydown);
+    documentTabs.append(tab);
+  });
+
+  closeAllTabsButton.disabled = documents.length === 0;
+}
+
+function handleDocumentTabKeydown(event) {
+  const currentIndex = documents.findIndex((documentState) => documentState.id === event.currentTarget.dataset.documentId);
+  if (currentIndex === -1) {
+    return;
+  }
+
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    selectDocument(documents[currentIndex].id);
+    return;
+  }
+
+  if (event.key === "Delete") {
+    event.preventDefault();
+    closeDocument(documents[currentIndex].id);
+    return;
+  }
+
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+    return;
+  }
+
+  event.preventDefault();
+  const direction = event.key === "ArrowRight" ? 1 : -1;
+  const nextIndex = (currentIndex + direction + documents.length) % documents.length;
+  selectDocument(documents[nextIndex].id);
+  documentTabs.querySelector(`[data-document-id="${documents[nextIndex].id}"]`)?.focus();
+}
+
+function confirmCloseDocuments(targetDocuments) {
+  const dirtyCount = targetDocuments.filter((documentState) => documentState.isDirty).length;
+  if (dirtyCount === 0) {
+    return true;
+  }
+
+  return window.confirm(`${dirtyCount}개의 수정 중인 문서가 있습니다. 저장하지 않고 닫을까요?`);
+}
+
+function closeDocument(documentId) {
+  syncActiveDocumentFromEditor();
+  const closeIndex = documents.findIndex((documentState) => documentState.id === documentId);
+  if (closeIndex === -1) {
+    return;
+  }
+
+  const closingDocument = documents[closeIndex];
+  if (!confirmCloseDocuments([closingDocument])) {
+    return;
+  }
+
+  const wasActive = closingDocument.id === activeDocumentId;
+  const closingName = getDocumentDisplayName(closingDocument);
+  documents.splice(closeIndex, 1);
+
+  if (documents.length === 0) {
+    const emptyDocument = addDocument(createDocument());
+    selectDocument(emptyDocument.id, { skipSync: true, status: `${closingName} 문서를 닫았습니다` });
+    return;
+  }
+
+  if (wasActive) {
+    const nextDocument = documents[Math.min(closeIndex, documents.length - 1)];
+    selectDocument(nextDocument.id, { skipSync: true, status: `${closingName} 문서를 닫았습니다` });
+    return;
+  }
+
+  renderDocumentTabs();
+  setStatus(`${closingName} 문서를 닫았습니다`);
+}
+
+function closeAllDocuments() {
+  syncActiveDocumentFromEditor();
+  if (!confirmCloseDocuments(documents)) {
+    return;
+  }
+
+  documents = [];
+  const emptyDocument = addDocument(createDocument());
+  selectDocument(emptyDocument.id, { skipSync: true, status: "모든 문서를 닫았습니다" });
+}
+
+function shouldReuseActiveDocumentForImport() {
+  const activeDocument = getActiveDocument();
+  return (
+    documents.length === 1 &&
+    activeDocument &&
+    !activeDocument.filePath &&
+    !activeDocument.isDirty
+  );
+}
+
 function setFile(fileName, filePath) {
   currentFileName = fileName || "document.md";
   currentFilePath = filePath || null;
   isDirty = false;
-  fileLabel.textContent = currentFilePath ? currentFileName : "새 문서";
+  syncActiveDocumentFromEditor();
+  updateFileLabel();
   updateSaveState();
+  renderDocumentTabs();
 }
 
 function updateSaveState() {
@@ -429,12 +679,41 @@ function defaultExportName(extension) {
 }
 
 function loadDocument(file, statusPrefix = "파일을 열었습니다") {
-  markdownInput.value = file.content;
-  setFile(file.fileName, file.filePath);
-  markdownInput.scrollTop = 0;
-  preview.scrollTop = 0;
-  renderMarkdown();
-  setStatus(`${statusPrefix}: ${file.fileName}`);
+  const existingDocument = findDocumentByFilePath(file.filePath);
+  if (existingDocument) {
+    if (!existingDocument.isDirty) {
+      existingDocument.fileName = file.fileName;
+      existingDocument.filePath = file.filePath;
+      existingDocument.content = file.content;
+      existingDocument.editorScrollTop = 0;
+      existingDocument.previewScrollTop = 0;
+    }
+    selectDocument(existingDocument.id, { status: `${statusPrefix}: ${file.fileName}` });
+    return;
+  }
+
+  if (shouldReuseActiveDocumentForImport()) {
+    const activeDocument = getActiveDocument();
+    activeDocument.fileName = file.fileName;
+    activeDocument.filePath = file.filePath;
+    activeDocument.content = file.content;
+    activeDocument.isDirty = false;
+    activeDocument.editorScrollTop = 0;
+    activeDocument.previewScrollTop = 0;
+    selectDocument(activeDocument.id, { skipSync: true, status: `${statusPrefix}: ${file.fileName}` });
+    return;
+  }
+
+  syncActiveDocumentFromEditor();
+  const importedDocument = addDocument(
+    createDocument({
+      fileName: file.fileName,
+      filePath: file.filePath,
+      content: file.content,
+      dirty: false,
+    }),
+  );
+  selectDocument(importedDocument.id, { skipSync: true, status: `${statusPrefix}: ${file.fileName}` });
 }
 
 async function handleSaveCurrent() {
@@ -1015,8 +1294,20 @@ function handleMarkdownInput() {
 }
 
 markdownInput.addEventListener("input", handleMarkdownInput);
-markdownInput.addEventListener("scroll", () => handleLinkedScroll(markdownInput, preview));
-preview.addEventListener("scroll", () => handleLinkedScroll(preview, markdownInput));
+markdownInput.addEventListener("scroll", () => {
+  const activeDocument = getActiveDocument();
+  if (activeDocument) {
+    activeDocument.editorScrollTop = markdownInput.scrollTop;
+  }
+  handleLinkedScroll(markdownInput, preview);
+});
+preview.addEventListener("scroll", () => {
+  const activeDocument = getActiveDocument();
+  if (activeDocument) {
+    activeDocument.previewScrollTop = preview.scrollTop;
+  }
+  handleLinkedScroll(preview, markdownInput);
+});
 preview.addEventListener("click", handlePreviewClick);
 outlineButton.addEventListener("click", toggleOutline);
 importButton.addEventListener("click", handleImport);
@@ -1025,6 +1316,7 @@ exportHtmlButton.addEventListener("click", handleExportHtml);
 exportPdfButton.addEventListener("click", handleExportPdf);
 copyMarkdownButton.addEventListener("click", copyMarkdown);
 themeButton.addEventListener("click", toggleTheme);
+closeAllTabsButton.addEventListener("click", closeAllDocuments);
 searchBar.addEventListener("submit", handleSearchSubmit);
 searchInput.addEventListener("input", () => queueSearch({ direction: 0 }));
 searchInput.addEventListener("keydown", handleSearchKeydown);
@@ -1048,5 +1340,6 @@ window.markdownViewer.onFileError((message) => setStatus(`파일 열기 실패: 
 restoreTheme();
 restoreEditorRatio();
 restoreOutlineWidth();
+initializeDocuments();
 renderMarkdown();
 window.__markdownViewerReady = true;

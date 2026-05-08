@@ -120,7 +120,11 @@ input:focus-visible {
 }
 
 .title-block {
-  min-width: 240px;
+  display: grid;
+  flex: 0 1 50vw;
+  gap: 6px;
+  min-width: 0;
+  max-width: 50vw;
 }
 
 .title-block h1 {
@@ -133,7 +137,7 @@ input:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 10px;
-  margin-top: 4px;
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
 }
@@ -142,6 +146,92 @@ input:focus-visible {
   margin-right: 10px;
   color: var(--border);
   content: "|";
+}
+
+.tabs-frame {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 50vw;
+  min-width: 0;
+  border: 0;
+}
+
+.document-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.document-tab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+  flex: 1 1 140px;
+  width: 140px;
+  min-width: 72px;
+  max-width: 140px;
+  height: 35px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 5px 0 10px;
+  background: var(--button);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.document-tab:hover,
+.document-tab:focus-visible {
+  border-color: var(--accent);
+  background: var(--button-hover);
+}
+
+.document-tab.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--button));
+}
+
+.document-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-tab-close {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.document-tab-close:hover,
+.document-tab-close:focus-visible {
+  background: var(--button-hover);
+  color: var(--text);
+}
+
+.tabs-close-all {
+  flex: 0 0 auto;
+  height: 27px;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .search-bar {

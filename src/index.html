@@ -11,11 +11,15 @@
     <div class="app-shell">
       <header class="toolbar">
         <div class="title-block">
-          <h1>Markdown Viewer</h1>
+          <h1 class="visually-hidden">Markdown Viewer</h1>
           <div class="document-meta" aria-label="문서 상태">
             <span id="fileLabel">새 문서</span>
             <span id="saveState">새 문서</span>
             <span id="wordCount">0자</span>
+          </div>
+          <div class="tabs-frame" aria-label="열린 Markdown 문서">
+            <div id="documentTabs" class="document-tabs" role="tablist" aria-label="문서 탭"></div>
+            <button id="closeAllTabsButton" class="tabs-close-all" type="button">전체닫기</button>
           </div>
         </div>
         <form id="searchBar" class="search-bar" role="search" hidden>

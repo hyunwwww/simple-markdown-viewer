@@ -19,6 +19,7 @@ const exportFiltersByType = {
 let mainWindow = null;
 let pendingFilePath = getOpenFilePathFromArgv(process.argv);
 let currentDocumentPath = null;
+const knownDocumentPaths = new Set();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -72,6 +73,9 @@ function createWindow() {
           const fileLabel = document.querySelector('#fileLabel');
           const statusMessage = document.querySelector('#statusMessage');
           const wordCount = document.querySelector('#wordCount');
+          const tabsFrame = document.querySelector('.tabs-frame');
+          const documentTabs = document.querySelector('#documentTabs');
+          const closeAllTabsButton = document.querySelector('#closeAllTabsButton');
           const searchBar = document.querySelector('#searchBar');
           const searchInput = document.querySelector('#searchInput');
           const searchResultCount = document.querySelector('#searchResultCount');
@@ -87,6 +91,33 @@ function createWindow() {
           const startupFileName = ${JSON.stringify(startupPayload?.fileName || null)};
           const startupFileLoaded = !startupFileName || fileLabel.textContent === startupFileName;
           document.documentElement.dataset.theme = 'light';
+
+          closeAllTabsButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          window.loadDocument({ fileName: 'alpha.md', filePath: 'C:\\\\smoke\\\\alpha.md', content: '# Alpha' }, 'Smoke');
+          window.loadDocument({ fileName: 'beta.md', filePath: 'C:\\\\smoke\\\\beta.md', content: '# Beta' }, 'Smoke');
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          let tabNodes = [...documentTabs.querySelectorAll('.document-tab')];
+          const tabBoxLimit = tabsFrame.getBoundingClientRect().width <= window.innerWidth * 0.5 + 1;
+          const tabDefaultSize = tabNodes.length >= 2 &&
+            Math.round(tabNodes[0].getBoundingClientRect().height) === 35 &&
+            tabNodes[0].getBoundingClientRect().width <= 140;
+          const tabsCreated = tabNodes.length === 2 &&
+            tabNodes[0].textContent.includes('alpha.md') &&
+            tabNodes[1].textContent.includes('beta.md') &&
+            closeAllTabsButton.textContent === '전체닫기';
+          tabNodes[0]?.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const tabSelectWorks = editor.value.includes('# Alpha');
+          tabNodes = [...documentTabs.querySelectorAll('.document-tab')];
+          tabNodes[1]?.querySelector('.document-tab-close')?.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const tabCloseWorks = documentTabs.querySelectorAll('.document-tab').length === 1 &&
+            editor.value.includes('# Alpha');
+          closeAllTabsButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const closeAllTabsWorks = documentTabs.querySelectorAll('.document-tab').length === 1 &&
+            editor.value === '';
 
           editor.value = Array.from({ length: 80 }, (_, index) =>
             index === 0
@@ -222,6 +253,12 @@ function createWindow() {
             wordCountInHeader: Boolean(wordCount) &&
               document.querySelector('.toolbar #wordCount') === wordCount &&
               wordCount.textContent.includes('자'),
+            tabsInHeader: Boolean(documentTabs) &&
+              document.querySelector('.toolbar #documentTabs') === documentTabs &&
+              tabBoxLimit &&
+              tabDefaultSize &&
+              tabsCreated,
+            tabNavigationAndClose: tabSelectWorks && tabCloseWorks && closeAllTabsWorks,
             copyTextButtonRemoved: !document.querySelector('#copyTextButton'),
             copyMarkdownWorks,
             codeCopyButtonPresent: codeCopyButton?.textContent === 'Copy',
@@ -336,17 +373,20 @@ ipcMain.handle("file:open", async () => {
 
   const file = await readMarkdownFile(result.filePaths[0]);
   currentDocumentPath = file.filePath;
+  rememberDocumentPath(file.filePath);
   return file;
 });
 
 ipcMain.handle("file:save-current", async (_event, payload) => {
   const { content, defaultPath, filePath } = validateCurrentSavePayload(payload);
 
-  if (filePath && currentDocumentPath && path.resolve(filePath) === currentDocumentPath) {
-    await fs.writeFile(currentDocumentPath, content, "utf8");
+  if (filePath && isKnownDocumentPath(filePath)) {
+    await fs.writeFile(filePath, content, "utf8");
+    currentDocumentPath = filePath;
+    rememberDocumentPath(filePath);
     return {
-      filePath: currentDocumentPath,
-      fileName: path.basename(currentDocumentPath),
+      filePath,
+      fileName: path.basename(filePath),
     };
   }
 
@@ -363,6 +403,7 @@ ipcMain.handle("file:save-current", async (_event, payload) => {
   const normalizedPath = validateWritableMarkdownPath(result.filePath);
   await fs.writeFile(normalizedPath, content, "utf8");
   currentDocumentPath = normalizedPath;
+  rememberDocumentPath(normalizedPath);
   return {
     filePath: normalizedPath,
     fileName: path.basename(normalizedPath),
@@ -564,6 +605,21 @@ function normalizeFilePathArg(arg) {
   return path.resolve(arg);
 }
 
+function getDocumentPathKey(filePath) {
+  const normalizedPath = path.resolve(filePath);
+  return process.platform === "win32" ? normalizedPath.toLocaleLowerCase("en-US") : normalizedPath;
+}
+
+function rememberDocumentPath(filePath) {
+  if (filePath) {
+    knownDocumentPaths.add(getDocumentPathKey(filePath));
+  }
+}
+
+function isKnownDocumentPath(filePath) {
+  return filePath ? knownDocumentPaths.has(getDocumentPathKey(filePath)) : false;
+}
+
 async function readMarkdownFile(filePath) {
   const normalizedPath = normalizeFilePathArg(filePath);
   if (!normalizedPath || !supportedOpenExtensions.has(path.extname(normalizedPath).toLowerCase())) {
@@ -591,6 +647,7 @@ async function loadFileInWindow(filePath) {
   try {
     const payload = await readMarkdownFile(filePath);
     currentDocumentPath = payload.filePath;
+    rememberDocumentPath(payload.filePath);
     mainWindow.webContents.send("file:loaded", payload);
     return payload;
   } catch (error) {
