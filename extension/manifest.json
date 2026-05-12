@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Simple Markdown Viewer",
+  "version": "0.1.1",
+  "description": "A simple browser-based Markdown viewer with source, preview, themes, and outline.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Simple Markdown Viewer"
+  },
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "permissions": [
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "file:///*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "viewer.html",
+        "viewer.css",
+        "viewer.js",
+        "preview-safety.css",
+        "vendor/*",
+        "themes/*/*"
+      ],
+      "matches": [
+        "file:///*"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "file:///*"
+      ],
+      "js": [
+        "content/open-markdown-links.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

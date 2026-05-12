@@ -7,11 +7,13 @@ const saveState = document.querySelector("#saveState");
 const documentTabs = document.querySelector("#documentTabs");
 const closeAllTabsButton = document.querySelector("#closeAllTabsButton");
 const outlineButton = document.querySelector("#outlineButton");
+const sourceToggleButton = document.querySelector("#sourceToggleButton");
 const importButton = document.querySelector("#importButton");
 const exportMarkdownButton = document.querySelector("#exportMarkdownButton");
 const exportHtmlButton = document.querySelector("#exportHtmlButton");
 const exportPdfButton = document.querySelector("#exportPdfButton");
 const copyMarkdownButton = document.querySelector("#copyMarkdownButton");
+const translateButton = document.querySelector("#translateButton");
 const themeButton = document.querySelector("#themeButton");
 const searchBar = document.querySelector("#searchBar");
 const searchInput = document.querySelector("#searchInput");
@@ -20,6 +22,8 @@ const searchPreviousButton = document.querySelector("#searchPreviousButton");
 const searchNextButton = document.querySelector("#searchNextButton");
 const closeSearchButton = document.querySelector("#closeSearchButton");
 const workspace = document.querySelector(".workspace");
+const editorPanel = document.querySelector("#editorPanel");
+const zoomIndicator = document.querySelector("#zoomIndicator");
 const splitter = document.querySelector("#splitter");
 const outlinePanel = document.querySelector("#outlinePanel");
 const outlineList = document.querySelector("#outlineList");
@@ -37,16 +41,32 @@ let searchDebounceId = null;
 let searchResults = [];
 let activeSearchIndex = -1;
 let isResizingSplit = false;
+let isEditorCollapsed = false;
+let activeContentArea = "editor";
+let zoomIndicatorTimeoutId = null;
 let isOutlineOpen = false;
 let isResizingOutline = false;
+let isTranslationEnabled = false;
+let translationDebounceId = null;
+let translationRunId = 0;
 
 const splitRatioStorageKey = "editorPreviewSplitRatio";
+const sourceCollapsedStorageKey = "sourcePanelCollapsed";
+const contentZoomStorageKey = "contentZoomPercent";
 const outlineWidthStorageKey = "outlineWidth";
+const translationBatchSize = 40;
+const groupedTranslationMaxLength = 2800;
+const maxTranslationCacheEntries = 1200;
 const minEditorRatio = 25;
 const maxEditorRatio = 75;
+const minContentZoom = 70;
+const maxContentZoom = 220;
+const contentZoomStep = 10;
+const defaultContentZoom = 100;
 const defaultOutlineWidth = 250;
 const minOutlineWidth = 120;
 const maxOutlineWidth = 360;
+const translationCache = new Map();
 
 marked.setOptions({
   breaks: true,
@@ -74,7 +94,11 @@ function renderMarkdown() {
   wordCount.textContent = `${markdown.length.toLocaleString("ko-KR")}자`;
   updateSaveState();
   renderDocumentTabs();
-  refreshSearchAfterRender();
+  if (isTranslationEnabled) {
+    queuePreviewTranslation();
+  } else {
+    refreshSearchAfterRender();
+  }
 }
 
 function normalizeMarkdownFences(markdown) {
@@ -585,6 +609,143 @@ function toggleOutline() {
   setOutlineOpen(!isOutlineOpen);
 }
 
+function setEditorCollapsed(collapsed, { persist = true, announce = true } = {}) {
+  isEditorCollapsed = collapsed;
+  workspace.classList.toggle("editor-collapsed", collapsed);
+  editorPanel.hidden = collapsed;
+  splitter.hidden = collapsed;
+  sourceToggleButton.textContent = collapsed ? "원문 펼치기" : "원문 접기";
+  sourceToggleButton.title = collapsed ? "왼쪽 원문 프레임 펼치기" : "왼쪽 원문 프레임 접기";
+  sourceToggleButton.setAttribute("aria-expanded", String(!collapsed));
+  sourceToggleButton.setAttribute("aria-pressed", String(collapsed));
+
+  if (collapsed && editorPanel.contains(document.activeElement)) {
+    preview.focus({ preventScroll: true });
+  }
+
+  if (persist) {
+    localStorage.setItem(sourceCollapsedStorageKey, collapsed ? "true" : "false");
+  }
+
+  if (announce) {
+    setStatus(collapsed ? "원문 프레임을 접었습니다." : "원문 프레임을 펼쳤습니다.");
+  }
+}
+
+function toggleEditorPanel() {
+  setEditorCollapsed(!isEditorCollapsed);
+}
+
+function restoreEditorCollapsedState() {
+  setEditorCollapsed(localStorage.getItem(sourceCollapsedStorageKey) === "true", {
+    persist: false,
+    announce: false,
+  });
+}
+
+function refreshCurrentView() {
+  renderMarkdown();
+  setStatus("새로고침했습니다.");
+}
+
+function rememberContentArea(area) {
+  activeContentArea = area;
+}
+
+function shouldKeepNativeSelectAll(target) {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLButtonElement ||
+    target?.isContentEditable
+  );
+}
+
+function selectActiveContentArea() {
+  const area = isEditorCollapsed && activeContentArea === "editor" ? "preview" : activeContentArea;
+  if (area === "preview") {
+    selectPreviewContent();
+    return;
+  }
+
+  selectEditorContent();
+}
+
+function selectEditorContent() {
+  markdownInput.focus({ preventScroll: true });
+  markdownInput.select();
+  setStatus("원문 영역을 선택했습니다.");
+}
+
+function selectPreviewContent() {
+  const selection = window.getSelection();
+  if (!selection) {
+    return;
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(preview);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  preview.focus({ preventScroll: true });
+  setStatus("뷰어 영역을 선택했습니다.");
+}
+
+function isContentSurface(target) {
+  return target instanceof Element && (editorPanel.contains(target) || preview.contains(target));
+}
+
+function restoreContentZoom() {
+  const storedZoom = Number.parseInt(localStorage.getItem(contentZoomStorageKey), 10);
+  setContentZoom(Number.isFinite(storedZoom) ? storedZoom : defaultContentZoom, {
+    persist: false,
+    announce: false,
+  });
+}
+
+function setContentZoom(zoom, { persist = true, announce = true } = {}) {
+  const clampedZoom = Math.min(maxContentZoom, Math.max(minContentZoom, zoom));
+  const roundedZoom = Math.round(clampedZoom);
+  document.documentElement.style.setProperty("--content-zoom", `${roundedZoom}%`);
+
+  if (persist) {
+    localStorage.setItem(contentZoomStorageKey, String(roundedZoom));
+  }
+
+  if (announce) {
+    showZoomIndicator(roundedZoom);
+  }
+}
+
+function getContentZoom() {
+  const currentZoom = Number.parseInt(localStorage.getItem(contentZoomStorageKey), 10);
+  return Number.isFinite(currentZoom) ? currentZoom : defaultContentZoom;
+}
+
+function showZoomIndicator(zoom) {
+  zoomIndicator.textContent = `${zoom}%`;
+  zoomIndicator.hidden = false;
+
+  if (zoomIndicatorTimeoutId) {
+    window.clearTimeout(zoomIndicatorTimeoutId);
+  }
+
+  zoomIndicatorTimeoutId = window.setTimeout(() => {
+    zoomIndicator.hidden = true;
+    zoomIndicatorTimeoutId = null;
+  }, 900);
+}
+
+function handleContentWheel(event) {
+  if (!event.ctrlKey || !isContentSurface(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
+  const direction = event.deltaY < 0 ? 1 : -1;
+  setContentZoom(getContentZoom() + direction * contentZoomStep);
+}
+
 function makeHtmlDocument() {
   const title = escapeHtml(currentFileName.replace(/\.(md|markdown|txt)$/i, ""));
   return `<!doctype html>
@@ -679,6 +840,7 @@ function defaultExportName(extension) {
 }
 
 function loadDocument(file, statusPrefix = "파일을 열었습니다") {
+  const linkedHash = typeof file.hash === "string" ? file.hash : "";
   const existingDocument = findDocumentByFilePath(file.filePath);
   if (existingDocument) {
     if (!existingDocument.isDirty) {
@@ -689,6 +851,7 @@ function loadDocument(file, statusPrefix = "파일을 열었습니다") {
       existingDocument.previewScrollTop = 0;
     }
     selectDocument(existingDocument.id, { status: `${statusPrefix}: ${file.fileName}` });
+    scrollToLinkedHash(linkedHash);
     return;
   }
 
@@ -701,6 +864,7 @@ function loadDocument(file, statusPrefix = "파일을 열었습니다") {
     activeDocument.editorScrollTop = 0;
     activeDocument.previewScrollTop = 0;
     selectDocument(activeDocument.id, { skipSync: true, status: `${statusPrefix}: ${file.fileName}` });
+    scrollToLinkedHash(linkedHash);
     return;
   }
 
@@ -714,6 +878,25 @@ function loadDocument(file, statusPrefix = "파일을 열었습니다") {
     }),
   );
   selectDocument(importedDocument.id, { skipSync: true, status: `${statusPrefix}: ${file.fileName}` });
+  scrollToLinkedHash(linkedHash);
+}
+
+function scrollToLinkedHash(hash) {
+  if (!hash) {
+    return;
+  }
+
+  const normalizedHash = hash.startsWith("#") ? hash : `#${hash}`;
+  window.requestAnimationFrame(() => {
+    const target = findHashTarget(normalizedHash);
+    if (!target) {
+      setStatus("Local file opened, but the linked heading was not found.");
+      return;
+    }
+
+    scrollPreviewTarget(target);
+    setStatus(`Local link target: ${target.textContent.trim() || target.id}`);
+  });
 }
 
 async function handleSaveCurrent() {
@@ -801,6 +984,273 @@ async function writeClipboard(text, successMessage) {
   } catch (error) {
     setStatus(`복사 실패: ${error.message}`);
   }
+}
+
+function toggleTranslation() {
+  isTranslationEnabled = !isTranslationEnabled;
+  translationRunId += 1;
+  clearPendingTranslation();
+  updateTranslateButton();
+
+  if (!isTranslationEnabled) {
+    renderMarkdown();
+    setStatus("우측 뷰어를 원문으로 되돌렸습니다.");
+    return;
+  }
+
+  renderMarkdown();
+}
+
+function updateTranslateButton() {
+  translateButton.textContent = isTranslationEnabled ? "원문" : "번역";
+  translateButton.setAttribute("aria-pressed", String(isTranslationEnabled));
+  translateButton.title = isTranslationEnabled
+    ? "우측 뷰어를 원문으로 되돌리기"
+    : "우측 뷰어를 한국어로 번역";
+}
+
+function clearPendingTranslation() {
+  if (translationDebounceId) {
+    window.clearTimeout(translationDebounceId);
+    translationDebounceId = null;
+  }
+
+  translateButton.removeAttribute("aria-busy");
+}
+
+function queuePreviewTranslation() {
+  clearPendingTranslation();
+  const runId = ++translationRunId;
+  translateButton.setAttribute("aria-busy", "true");
+  setStatus("우측 뷰어를 한국어로 번역 중입니다. 문서 텍스트가 번역 서비스로 전송됩니다.");
+
+  translationDebounceId = window.setTimeout(() => {
+    translationDebounceId = null;
+    translatePreviewToKorean(runId).finally(() => {
+      if (runId === translationRunId) {
+        translateButton.removeAttribute("aria-busy");
+      }
+    });
+  }, 160);
+}
+
+async function translatePreviewToKorean(runId) {
+  const entries = getTranslatablePreviewEntries();
+  if (runId !== translationRunId || !isTranslationEnabled) {
+    return;
+  }
+
+  if (entries.length === 0) {
+    refreshSearchAfterRender();
+    setStatus("번역할 텍스트가 없습니다.");
+    return;
+  }
+
+  let translatedCount = 0;
+
+  try {
+    for (let start = 0; start < entries.length; start += translationBatchSize) {
+      if (runId !== translationRunId || !isTranslationEnabled) {
+        return;
+      }
+
+      const batch = entries.slice(start, start + translationBatchSize);
+      const uncachedEntries = [];
+
+      batch.forEach((entry) => {
+        const cachedTranslation = translationCache.get(entry.text);
+        if (typeof cachedTranslation === "string") {
+          entry.node.nodeValue = `${entry.leading}${cachedTranslation}${entry.trailing}`;
+          translatedCount += 1;
+          return;
+        }
+
+        uncachedEntries.push(entry);
+      });
+
+      if (uncachedEntries.length === 0) {
+        continue;
+      }
+
+      const translatedTexts = await translateEntryBatch(uncachedEntries);
+      if (runId !== translationRunId || !isTranslationEnabled) {
+        return;
+      }
+
+      if (!Array.isArray(translatedTexts) || translatedTexts.length !== uncachedEntries.length) {
+        throw new Error("번역 결과 개수가 맞지 않습니다.");
+      }
+
+      uncachedEntries.forEach((entry, index) => {
+        const translatedText = typeof translatedTexts[index] === "string" ? translatedTexts[index] : entry.text;
+        rememberCachedTranslation(entry.text, translatedText);
+        entry.node.nodeValue = `${entry.leading}${translatedText}${entry.trailing}`;
+        translatedCount += 1;
+      });
+    }
+
+    if (runId !== translationRunId || !isTranslationEnabled) {
+      return;
+    }
+
+    preview.normalize();
+    renderOutlineFromCurrentPreview();
+    refreshSearchAfterRender();
+    setStatus(`우측 뷰어를 한국어로 번역했습니다. (${translatedCount.toLocaleString("ko-KR")}개 텍스트)`);
+  } catch (error) {
+    if (runId !== translationRunId) {
+      return;
+    }
+
+    isTranslationEnabled = false;
+    translationRunId += 1;
+    clearPendingTranslation();
+    updateTranslateButton();
+    renderMarkdown();
+    setStatus(`번역 실패: ${error.message}`);
+  }
+}
+
+function getTranslatablePreviewEntries() {
+  const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const text = node.nodeValue || "";
+      if (!text.trim()) {
+        return NodeFilter.FILTER_REJECT;
+      }
+
+      const parent = node.parentElement;
+      if (
+        !parent ||
+        parent.closest("pre, code, kbd, samp, .code-copy-button, .search-highlight, script, style")
+      ) {
+        return NodeFilter.FILTER_REJECT;
+      }
+
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const entries = [];
+
+  while (walker.nextNode()) {
+    const entry = makeTranslationEntry(walker.currentNode);
+    if (entry) {
+      entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
+function makeTranslationEntry(node) {
+  const rawText = node.nodeValue || "";
+  const leading = rawText.match(/^\s*/)?.[0] || "";
+  const trailing = rawText.match(/\s*$/)?.[0] || "";
+  const text = rawText.slice(leading.length, rawText.length - trailing.length);
+
+  if (!/[\p{Letter}\p{Number}]/u.test(text)) {
+    return null;
+  }
+
+  return {
+    node,
+    leading,
+    text,
+    trailing,
+  };
+}
+
+async function translateEntryBatch(entries) {
+  const chunks = createGroupedTranslationChunks(entries);
+  const translatedChunks = await window.markdownViewer.translateToKorean(chunks.map((chunk) => chunk.text));
+  if (!Array.isArray(translatedChunks) || translatedChunks.length !== chunks.length) {
+    throw new Error("번역 결과 개수가 맞지 않습니다.");
+  }
+
+  const translatedTexts = [];
+  let shouldFallback = false;
+
+  chunks.forEach((chunk, index) => {
+    const parts = splitGroupedTranslation(translatedChunks[index], chunk.id);
+    if (parts.length !== chunk.entries.length) {
+      shouldFallback = true;
+      return;
+    }
+
+    translatedTexts.push(...parts);
+  });
+
+  if (!shouldFallback && translatedTexts.length === entries.length) {
+    return translatedTexts;
+  }
+
+  return window.markdownViewer.translateToKorean(entries.map((entry) => entry.text));
+}
+
+function createGroupedTranslationChunks(entries) {
+  const chunks = [];
+  let currentEntries = [];
+  let currentText = "";
+
+  entries.forEach((entry) => {
+    const separator = currentEntries.length > 0 ? makeGroupedTranslationMarker(chunks.length, currentEntries.length) : "";
+    const nextText = currentEntries.length > 0 ? `${currentText}\n${separator}\n${entry.text}` : entry.text;
+
+    if (currentEntries.length > 0 && nextText.length > groupedTranslationMaxLength) {
+      chunks.push({
+        id: chunks.length,
+        entries: currentEntries,
+        text: currentText,
+      });
+      currentEntries = [entry];
+      currentText = entry.text;
+      return;
+    }
+
+    currentEntries.push(entry);
+    currentText = nextText;
+  });
+
+  if (currentEntries.length > 0) {
+    chunks.push({
+      id: chunks.length,
+      entries: currentEntries,
+      text: currentText,
+    });
+  }
+
+  return chunks;
+}
+
+function makeGroupedTranslationMarker(chunkId, segmentIndex) {
+  return `[[[SMV_SEG_${chunkId}_${segmentIndex}]]]`;
+}
+
+function splitGroupedTranslation(translatedText, chunkId) {
+  if (typeof translatedText !== "string") {
+    return [];
+  }
+
+  const markerPattern = new RegExp(`\\s*\\[\\[\\[SMV_SEG_${chunkId}_\\d+\\]\\]\\]\\s*`, "g");
+  return translatedText.split(markerPattern);
+}
+
+function rememberCachedTranslation(sourceText, translatedText) {
+  if (translationCache.size >= maxTranslationCacheEntries) {
+    translationCache.clear();
+  }
+
+  translationCache.set(sourceText, translatedText);
+}
+
+function renderOutlineFromCurrentPreview() {
+  const items = [...preview.querySelectorAll("h1, h2, h3, h4, h5, h6")].map((heading) => ({
+    id: heading.id,
+    text: heading.textContent.trim() || "Untitled",
+    level: Number(heading.tagName.slice(1)),
+  }));
+
+  renderOutline(items);
 }
 
 function toggleTheme() {
@@ -1068,7 +1518,7 @@ async function handlePreviewClick(event) {
   }
 
   if (!/^(https?:|mailto:)/i.test(href)) {
-    setStatus("지원하지 않는 링크 형식입니다.");
+    await openLocalPreviewLink(href);
     return;
   }
 
@@ -1077,6 +1527,23 @@ async function handlePreviewClick(event) {
     setStatus("외부 링크를 열었습니다.");
   } catch (error) {
     setStatus(`링크 열기 실패: ${error.message}`);
+  }
+}
+
+async function openLocalPreviewLink(href) {
+  if (!currentFilePath) {
+    setStatus("Relative local links require an opened or saved Markdown file.");
+    return;
+  }
+
+  try {
+    const file = await window.markdownViewer.openLinkedFile({
+      href,
+      sourceFilePath: currentFilePath,
+    });
+    loadDocument(file, "Local link opened");
+  } catch (error) {
+    setStatus(`Local link open failed: ${error.message}`);
   }
 }
 
@@ -1104,9 +1571,21 @@ function decodeHash(hash) {
 
 function handleGlobalKeydown(event) {
   const key = event.key.toLowerCase();
+  if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key === "F5") {
+    event.preventDefault();
+    refreshCurrentView();
+    return;
+  }
+
   if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key === "F4") {
     event.preventDefault();
     toggleOutline();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && key === "a" && !event.altKey && !shouldKeepNativeSelectAll(event.target)) {
+    event.preventDefault();
+    selectActiveContentArea();
     return;
   }
 
@@ -1293,6 +1772,12 @@ function handleMarkdownInput() {
   renderMarkdown();
 }
 
+editorPanel.addEventListener("pointerenter", () => rememberContentArea("editor"));
+editorPanel.addEventListener("pointerdown", () => rememberContentArea("editor"));
+preview.addEventListener("pointerenter", () => rememberContentArea("preview"));
+preview.addEventListener("pointerdown", () => rememberContentArea("preview"));
+markdownInput.addEventListener("focus", () => rememberContentArea("editor"));
+preview.addEventListener("focus", () => rememberContentArea("preview"));
 markdownInput.addEventListener("input", handleMarkdownInput);
 markdownInput.addEventListener("scroll", () => {
   const activeDocument = getActiveDocument();
@@ -1310,11 +1795,13 @@ preview.addEventListener("scroll", () => {
 });
 preview.addEventListener("click", handlePreviewClick);
 outlineButton.addEventListener("click", toggleOutline);
+sourceToggleButton.addEventListener("click", toggleEditorPanel);
 importButton.addEventListener("click", handleImport);
 exportMarkdownButton.addEventListener("click", handleExportMarkdown);
 exportHtmlButton.addEventListener("click", handleExportHtml);
 exportPdfButton.addEventListener("click", handleExportPdf);
 copyMarkdownButton.addEventListener("click", copyMarkdown);
+translateButton.addEventListener("click", toggleTranslation);
 themeButton.addEventListener("click", toggleTheme);
 closeAllTabsButton.addEventListener("click", closeAllDocuments);
 searchBar.addEventListener("submit", handleSearchSubmit);
@@ -1324,6 +1811,7 @@ searchPreviousButton.addEventListener("click", () => moveSearch(-1));
 searchNextButton.addEventListener("click", () => moveSearch(1));
 closeSearchButton.addEventListener("click", closeSearch);
 document.addEventListener("keydown", handleGlobalKeydown);
+document.addEventListener("wheel", handleContentWheel, { passive: false });
 splitter.addEventListener("pointerdown", startSplitResize);
 splitter.addEventListener("pointermove", resizeSplit);
 splitter.addEventListener("pointerup", stopSplitResize);
@@ -1338,8 +1826,13 @@ window.markdownViewer.onFileLoaded((file) => loadDocument(file));
 window.markdownViewer.onFileError((message) => setStatus(`파일 열기 실패: ${message}`));
 
 restoreTheme();
+updateTranslateButton();
 restoreEditorRatio();
+restoreEditorCollapsedState();
+restoreContentZoom();
 restoreOutlineWidth();
 initializeDocuments();
 renderMarkdown();
+window.loadDocument = loadDocument;
+window.setMarkdownViewerStatus = setStatus;
 window.__markdownViewerReady = true;

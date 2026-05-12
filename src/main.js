@@ -1,9 +1,19 @@
-const { app, BrowserWindow, dialog, ipcMain, clipboard, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, clipboard, shell, net } = require("electron");
+const { spawn } = require("node:child_process");
+const os = require("node:os");
 const path = require("node:path");
+const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const { fileURLToPath } = require("node:url");
 
 const isSmokeTest = process.argv.includes("--smoke-test");
+const isSecondInstanceSmoke = process.argv.includes("--second-instance-smoke");
+const secondInstanceSmokeUserDataPath = getSecondInstanceSmokeUserDataPath(process.argv);
+if (secondInstanceSmokeUserDataPath) {
+  app.setPath("userData", secondInstanceSmokeUserDataPath);
+}
+const translateEndpoint = "https://translate.googleapis.com/translate_a/single";
+const maxTranslateChunkLength = 3500;
 const markdownFilters = [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }];
 const supportedOpenExtensions = new Set([".md", ".markdown", ".txt"]);
 const exportFilters = [
@@ -17,7 +27,9 @@ const exportFiltersByType = {
   pdf: [{ name: "PDF", extensions: ["pdf"] }],
 };
 let mainWindow = null;
-let pendingFilePath = getOpenFilePathFromArgv(process.argv);
+const initialOpenFilePath = getOpenFilePathFromArgv(process.argv);
+const pendingFilePaths = initialOpenFilePath ? [initialOpenFilePath] : [];
+let isFlushingOpenFiles = false;
 let currentDocumentPath = null;
 const knownDocumentPaths = new Set();
 
@@ -54,17 +66,33 @@ function createWindow() {
     }
   });
   mainWindow.webContents.once("did-finish-load", async () => {
-    let startupPayload = null;
-    if (pendingFilePath) {
-      startupPayload = await loadFileInWindow(pendingFilePath);
-      pendingFilePath = null;
+    const startupPayloads = await flushPendingOpenFiles();
+    const startupPayload = startupPayloads[0] || null;
+
+    if (isSecondInstanceSmoke) {
+      try {
+        await runSecondInstanceSmoke();
+      } catch (error) {
+        console.error(`second-instance smoke failed: ${error.message}`);
+        app.exit(1);
+      }
+      return;
     }
 
     if (!isSmokeTest) {
       return;
     }
 
+    let linkedSmokeRoot = null;
     try {
+      linkedSmokeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "markdown-viewer-link-smoke-"));
+      const linkedSmokeSourceDir = path.join(linkedSmokeRoot, "docs");
+      const linkedSmokeSourcePath = path.join(linkedSmokeSourceDir, "source.md");
+      const linkedSmokeTargetPath = path.join(linkedSmokeRoot, "target.md");
+      await fs.mkdir(linkedSmokeSourceDir, { recursive: true });
+      await fs.writeFile(linkedSmokeSourcePath, "[Target](../target.md#target-heading)", "utf8");
+      await fs.writeFile(linkedSmokeTargetPath, "# Target\n\n## Target Heading\n\nLocal link opened.", "utf8");
+
       const checks = await mainWindow.webContents.executeJavaScript(
         `(async () => {
           await document.fonts.ready;
@@ -82,14 +110,23 @@ function createWindow() {
           const searchPreviousButton = document.querySelector('#searchPreviousButton');
           const searchNextButton = document.querySelector('#searchNextButton');
           const outlineButton = document.querySelector('#outlineButton');
+          const sourceToggleButton = document.querySelector('#sourceToggleButton');
           const exportPdfButton = document.querySelector('#exportPdfButton');
+          const copyMarkdownButton = document.querySelector('#copyMarkdownButton');
+          const translateButton = document.querySelector('#translateButton');
+          const themeButton = document.querySelector('#themeButton');
           const workspace = document.querySelector('.workspace');
+          const editorPanel = document.querySelector('#editorPanel');
+          const zoomIndicator = document.querySelector('#zoomIndicator');
           const splitter = document.querySelector('#splitter');
           const outlinePanel = document.querySelector('#outlinePanel');
           const outlineList = document.querySelector('#outlineList');
           const outlineSplitter = document.querySelector('#outlineSplitter');
+          const startupFileExpected = ${JSON.stringify(Boolean(initialOpenFilePath))};
           const startupFileName = ${JSON.stringify(startupPayload?.fileName || null)};
-          const startupFileLoaded = !startupFileName || fileLabel.textContent === startupFileName;
+          const startupFileLoaded = !startupFileExpected ||
+            (Boolean(startupFileName) && fileLabel.textContent === startupFileName);
+          const linkedSmokeSourcePath = ${JSON.stringify(linkedSmokeSourcePath)};
           document.documentElement.dataset.theme = 'light';
 
           closeAllTabsButton.click();
@@ -118,6 +155,20 @@ function createWindow() {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const closeAllTabsWorks = documentTabs.querySelectorAll('.document-tab').length === 1 &&
             editor.value === '';
+
+          window.loadDocument({
+            fileName: 'source.md',
+            filePath: linkedSmokeSourcePath,
+            content: '[Target](../target.md#target-heading)'
+          }, 'Smoke');
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          preview.querySelector('a[href^="../"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          for (let attempt = 0; attempt < 20 && !editor.value.includes('Local link opened.'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          const relativeLocalLinkClick = editor.value.includes('Local link opened.') &&
+            fileLabel.textContent === 'target.md';
+          const relativeLocalLinkHash = statusMessage.textContent.includes('Target Heading');
 
           editor.value = Array.from({ length: 80 }, (_, index) =>
             index === 0
@@ -172,6 +223,57 @@ function createWindow() {
           splitter.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
           const splitAdjustedValue = Number(splitter.getAttribute('aria-valuenow'));
 
+          sourceToggleButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const sourceCollapsed = workspace.classList.contains('editor-collapsed') &&
+            editorPanel.hidden &&
+            splitter.hidden &&
+            sourceToggleButton.textContent === '원문 펼치기' &&
+            sourceToggleButton.getAttribute('aria-expanded') === 'false' &&
+            localStorage.getItem('sourcePanelCollapsed') === 'true';
+          sourceToggleButton.click();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const sourceExpanded = !workspace.classList.contains('editor-collapsed') &&
+            !editorPanel.hidden &&
+            !splitter.hidden &&
+            sourceToggleButton.textContent === '원문 접기' &&
+            sourceToggleButton.getAttribute('aria-expanded') === 'true' &&
+            localStorage.getItem('sourcePanelCollapsed') === 'false';
+
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true }));
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const f5RefreshWorks = statusMessage.textContent.includes('새로고침') &&
+            preview.innerText.includes('Section 79');
+
+          preview.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }));
+          const previewSelectionText = window.getSelection()?.toString() || '';
+          const ctrlASelectsPreview = previewSelectionText.includes('Section 79') &&
+            !previewSelectionText.includes(fileLabel.textContent);
+          window.getSelection()?.removeAllRanges();
+          editor.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }));
+          const ctrlASelectsEditor = editor.selectionStart === 0 &&
+            editor.selectionEnd === editor.value.length &&
+            editor.value.includes('Section 79');
+          editor.setSelectionRange(0, 0);
+
+          localStorage.setItem('contentZoomPercent', '100');
+          document.documentElement.style.setProperty('--content-zoom', '100%');
+          const initialEditorFontSize = Number.parseFloat(getComputedStyle(editor).fontSize);
+          const initialPreviewFontSize = Number.parseFloat(getComputedStyle(preview).fontSize);
+          preview.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -120, bubbles: true, cancelable: true }));
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const zoomedEditorFontSize = Number.parseFloat(getComputedStyle(editor).fontSize);
+          const zoomedPreviewFontSize = Number.parseFloat(getComputedStyle(preview).fontSize);
+          const contentZoomWorks = zoomedEditorFontSize > initialEditorFontSize &&
+            zoomedPreviewFontSize > initialPreviewFontSize &&
+            zoomIndicator.textContent === '110%' &&
+            !zoomIndicator.hidden &&
+            localStorage.getItem('contentZoomPercent') === '110';
+          localStorage.setItem('contentZoomPercent', '100');
+          document.documentElement.style.setProperty('--content-zoom', '100%');
+
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F4', bubbles: true }));
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const outlineOpenByShortcut = !outlinePanel.hidden && outlineButton.getAttribute('aria-pressed') === 'true';
@@ -190,7 +292,7 @@ function createWindow() {
           const outlineInitialWidth = Number(outlineSplitter.getAttribute('aria-valuenow'));
           outlineSplitter.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
           const outlineAdjustedWidth = Number(outlineSplitter.getAttribute('aria-valuenow'));
-          document.querySelector('#copyMarkdownButton')?.click();
+          copyMarkdownButton?.click();
           for (let attempt = 0; attempt < 10 && !statusMessage.textContent.includes('복사'); attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
@@ -249,6 +351,8 @@ function createWindow() {
             darkCodeBlockStyle: darkCodeBlockBackground === 'rgb(22, 27, 34)',
             linkedScrollReady: linkedScrollAfterEditorScroll,
             internalLinkClick: internalLinkClickScroll,
+            relativeLocalLinkClick,
+            relativeLocalLinkHash,
             panelBarsRemoved: document.querySelectorAll('.panel-heading').length === 0,
             wordCountInHeader: Boolean(wordCount) &&
               document.querySelector('.toolbar #wordCount') === wordCount &&
@@ -261,10 +365,23 @@ function createWindow() {
             tabNavigationAndClose: tabSelectWorks && tabCloseWorks && closeAllTabsWorks,
             copyTextButtonRemoved: !document.querySelector('#copyTextButton'),
             copyMarkdownWorks,
+            translateButtonPresent: Boolean(translateButton) &&
+              translateButton.textContent === '번역' &&
+              translateButton.previousElementSibling === copyMarkdownButton &&
+              translateButton.nextElementSibling === themeButton &&
+              translateButton.getAttribute('aria-pressed') === 'false',
+            translateApiAvailable: typeof window.markdownViewer.translateToKorean === 'function',
             codeCopyButtonPresent: codeCopyButton?.textContent === 'Copy',
             codeBlockWrapDefault,
             copyCodeBlockWorks,
             pdfExportButtonPresent: Boolean(exportPdfButton),
+            sourceToggleButtonPresent: Boolean(sourceToggleButton) &&
+              sourceToggleButton.previousElementSibling === outlineButton &&
+              sourceToggleButton.nextElementSibling === document.querySelector('#importButton'),
+            sourceCollapsePersists: sourceCollapsed && sourceExpanded,
+            f5RefreshWorks,
+            ctrlASelectsActivePane: ctrlASelectsPreview && ctrlASelectsEditor,
+            contentZoomWorks,
             outlineOpenByShortcut,
             outlineItemsReady: outlineItems.length >= 70,
             outlineClickScroll,
@@ -297,9 +414,13 @@ function createWindow() {
         console.error(JSON.stringify(checks, null, 2));
         throw new Error(`renderer checks failed: ${failedChecks.join(", ")}`);
       }
+      await fs.rm(linkedSmokeRoot, { recursive: true, force: true }).catch(() => {});
       console.log("smoke ok: renderer loaded");
       app.quit();
     } catch (error) {
+      if (linkedSmokeRoot) {
+        await fs.rm(linkedSmokeRoot, { recursive: true, force: true }).catch(() => {});
+      }
       console.error(`smoke failed: ${error.message}`);
       app.exit(1);
     }
@@ -311,13 +432,15 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "index.html"));
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const hasSingleInstanceLock = app.requestSingleInstanceLock({
+  openFilePath: initialOpenFilePath,
+});
 
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", (_event, argv) => {
-    const filePath = getOpenFilePathFromArgv(argv);
+  app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
+    const filePath = getOpenFilePathFromSecondInstance(argv, additionalData);
     if (mainWindow) {
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
@@ -325,22 +448,13 @@ if (!hasSingleInstanceLock) {
       mainWindow.focus();
     }
     if (filePath) {
-      pendingFilePath = filePath;
-      if (mainWindow?.webContents.isLoading()) {
-        return;
-      }
-      loadFileInWindow(filePath);
-      pendingFilePath = null;
+      enqueueOpenFile(filePath);
     }
   });
 
   app.on("open-file", (event, filePath) => {
     event.preventDefault();
-    pendingFilePath = filePath;
-    if (app.isReady() && mainWindow && !mainWindow.webContents.isLoading()) {
-      loadFileInWindow(filePath);
-      pendingFilePath = null;
-    }
+    enqueueOpenFile(filePath);
   });
 
   app.whenReady().then(() => {
@@ -375,6 +489,17 @@ ipcMain.handle("file:open", async () => {
   currentDocumentPath = file.filePath;
   rememberDocumentPath(file.filePath);
   return file;
+});
+
+ipcMain.handle("file:open-linked", async (_event, payload) => {
+  const { filePath, hash } = validateLinkedFilePayload(payload);
+  const file = await readMarkdownFile(filePath);
+  currentDocumentPath = file.filePath;
+  rememberDocumentPath(file.filePath);
+  return {
+    ...file,
+    hash,
+  };
 });
 
 ipcMain.handle("file:save-current", async (_event, payload) => {
@@ -457,6 +582,17 @@ ipcMain.handle("clipboard:write", (_event, text) => {
   return true;
 });
 
+ipcMain.handle("translate:ko", async (_event, payload) => {
+  const texts = validateTranslatePayload(payload);
+  const translatedTexts = [];
+
+  for (const text of texts) {
+    translatedTexts.push(await translateTextToKorean(text));
+  }
+
+  return translatedTexts;
+});
+
 ipcMain.handle("shell:openExternal", async (_event, href) => {
   const url = validateExternalUrl(href);
   await shell.openExternal(url);
@@ -537,6 +673,99 @@ function validateWritableMarkdownPath(filePath) {
   return normalizedPath;
 }
 
+function validateLinkedFilePayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Local link payload is invalid.");
+  }
+
+  const href = typeof payload.href === "string" ? payload.href.trim() : "";
+  if (!href) {
+    throw new Error("Local link is empty.");
+  }
+
+  const sourceFilePath =
+    typeof payload.sourceFilePath === "string" && payload.sourceFilePath.trim()
+      ? normalizeFilePathArg(payload.sourceFilePath)
+      : null;
+  const { linkPath, hash } = parseLocalLinkHref(href);
+  const filePath = path.isAbsolute(linkPath)
+    ? path.resolve(linkPath)
+    : resolveRelativeLocalLinkPath(sourceFilePath, linkPath);
+
+  const extension = path.extname(filePath).toLowerCase();
+  if (!supportedOpenExtensions.has(extension)) {
+    throw new Error("Local links can open Markdown or text files only.");
+  }
+
+  return {
+    filePath,
+    hash,
+  };
+}
+
+function parseLocalLinkHref(href) {
+  if (/^file:/i.test(href)) {
+    try {
+      const fileUrl = new URL(href);
+      return {
+        linkPath: fileURLToPath(fileUrl),
+        hash: fileUrl.hash || "",
+      };
+    } catch {
+      throw new Error("Local file URL is invalid.");
+    }
+  }
+
+  const hashIndex = href.indexOf("#");
+  const rawPath = hashIndex === -1 ? href : href.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : href.slice(hashIndex);
+  const linkPath = decodeLocalLinkPath(rawPath.trim());
+
+  if (!linkPath) {
+    throw new Error("Local link path is empty.");
+  }
+
+  if (hasUnsupportedLocalLinkScheme(linkPath)) {
+    throw new Error("Unsupported link protocol.");
+  }
+
+  return {
+    linkPath,
+    hash,
+  };
+}
+
+function decodeLocalLinkPath(value) {
+  try {
+    const decoded = decodeURIComponent(value);
+    if (decoded.includes("\0")) {
+      throw new Error("Local link path contains an invalid character.");
+    }
+    return decoded;
+  } catch (error) {
+    if (error.message === "Local link path contains an invalid character.") {
+      throw error;
+    }
+    throw new Error("Local link path is invalid.");
+  }
+}
+
+function hasUnsupportedLocalLinkScheme(value) {
+  return /^[a-z][a-z\d+.-]*:/i.test(value) && !isWindowsAbsolutePath(value);
+}
+
+function isWindowsAbsolutePath(value) {
+  return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]/.test(value);
+}
+
+function resolveRelativeLocalLinkPath(sourceFilePath, linkPath) {
+  if (!sourceFilePath) {
+    throw new Error("Relative local links require an opened or saved Markdown file.");
+  }
+
+  return path.resolve(path.dirname(sourceFilePath), linkPath);
+}
+
 function validateExternalUrl(href) {
   if (typeof href !== "string" || !href.trim()) {
     throw new Error("열 링크가 올바르지 않습니다.");
@@ -548,6 +777,98 @@ function validateExternalUrl(href) {
   }
 
   return url.toString();
+}
+
+function validateTranslatePayload(payload) {
+  if (!Array.isArray(payload)) {
+    throw new Error("번역할 텍스트 목록이 올바르지 않습니다.");
+  }
+
+  return payload.map((text) => {
+    if (typeof text !== "string") {
+      throw new Error("번역할 텍스트가 올바르지 않습니다.");
+    }
+
+    return text;
+  });
+}
+
+async function translateTextToKorean(text) {
+  if (!text.trim()) {
+    return text;
+  }
+
+  const chunks = splitTextForTranslation(text);
+  const translatedChunks = [];
+
+  for (const chunk of chunks) {
+    translatedChunks.push(await requestKoreanTranslation(chunk));
+  }
+
+  return translatedChunks.join("");
+}
+
+function splitTextForTranslation(text) {
+  if (text.length <= maxTranslateChunkLength) {
+    return [text];
+  }
+
+  const chunks = [];
+  let rest = text;
+
+  while (rest.length > maxTranslateChunkLength) {
+    const windowText = rest.slice(0, maxTranslateChunkLength);
+    const splitAt = findTranslationSplitIndex(windowText);
+    chunks.push(rest.slice(0, splitAt));
+    rest = rest.slice(splitAt);
+  }
+
+  if (rest) {
+    chunks.push(rest);
+  }
+
+  return chunks;
+}
+
+function findTranslationSplitIndex(text) {
+  const preferredBoundaries = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", "];
+  const minimumSplit = Math.floor(maxTranslateChunkLength * 0.55);
+
+  for (const boundary of preferredBoundaries) {
+    const index = text.lastIndexOf(boundary);
+    if (index >= minimumSplit) {
+      return index + boundary.length;
+    }
+  }
+
+  return maxTranslateChunkLength;
+}
+
+async function requestKoreanTranslation(text) {
+  const url = new URL(translateEndpoint);
+  url.searchParams.set("client", "gtx");
+  url.searchParams.set("sl", "auto");
+  url.searchParams.set("tl", "ko");
+  url.searchParams.append("dt", "t");
+  url.searchParams.set("q", text);
+
+  const response = await net.fetch(url.toString(), { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`번역 서비스 오류 (${response.status})`);
+  }
+
+  const payload = await response.json();
+  return parseTranslationResponse(payload);
+}
+
+function parseTranslationResponse(payload) {
+  if (!Array.isArray(payload) || !Array.isArray(payload[0])) {
+    throw new Error("번역 서비스 응답 형식이 올바르지 않습니다.");
+  }
+
+  return payload[0]
+    .map((part) => (Array.isArray(part) && typeof part[0] === "string" ? part[0] : ""))
+    .join("");
 }
 
 async function writePdfFile(html, filePath) {
@@ -577,15 +898,88 @@ async function writePdfFile(html, filePath) {
   }
 }
 
-function getOpenFilePathFromArgv(argv) {
-  for (let index = argv.length - 1; index >= 0; index -= 1) {
-    const arg = argv[index];
-    if (!arg || arg.startsWith("--")) {
-      continue;
+async function runSecondInstanceSmoke() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    throw new Error("main window is not available");
+  }
+
+  const marker = `second-instance-smoke-${process.pid}-${Date.now()}`;
+  const smokeFilePath = path.join(app.getPath("temp"), `${marker}.md`);
+  await fs.writeFile(smokeFilePath, `# ${marker}\n\nOpened from a second app instance.`, "utf8");
+
+  const smokeUserDataArg = `--second-instance-smoke-user-data=${secondInstanceSmokeUserDataPath}`;
+  const childArgs = app.isPackaged
+    ? [smokeUserDataArg, smokeFilePath]
+    : [app.getAppPath(), smokeUserDataArg, smokeFilePath];
+  const child = spawn(process.execPath, childArgs, {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  child.on("error", (error) => {
+    console.error(`second-instance child launch failed: ${error.message}`);
+  });
+  child.unref();
+
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline) {
+    const opened = await mainWindow.webContents.executeJavaScript(
+      `(() => {
+        const editor = document.querySelector('#markdownInput');
+        const fileLabel = document.querySelector('#fileLabel');
+        return Boolean(
+          window.__markdownViewerReady &&
+          editor?.value.includes(${JSON.stringify(marker)}) &&
+          fileLabel?.textContent === ${JSON.stringify(path.basename(smokeFilePath))}
+        );
+      })()`,
+      true,
+    );
+
+    if (opened) {
+      console.log("second-instance smoke ok: file opened in existing window");
+      app.quit();
+      return;
     }
 
-    const filePath = normalizeFilePathArg(arg);
-    if (filePath && supportedOpenExtensions.has(path.extname(filePath).toLowerCase())) {
+    await delay(100);
+  }
+
+  throw new Error("second-instance file was not opened in the existing window");
+}
+
+function getSecondInstanceSmokeUserDataPath(argv) {
+  const prefix = "--second-instance-smoke-user-data=";
+  const explicitArg = argv.find((arg) => typeof arg === "string" && arg.startsWith(prefix));
+  if (explicitArg) {
+    return path.resolve(stripMatchingQuotes(explicitArg.slice(prefix.length)));
+  }
+
+  if (!argv.includes("--second-instance-smoke")) {
+    return null;
+  }
+
+  return path.join(os.tmpdir(), `markdown-viewer-second-instance-smoke-${process.pid}`);
+}
+
+function getOpenFilePathFromArgv(argv) {
+  const args = argv.filter((arg) => typeof arg === "string" && arg.trim() && arg !== "--");
+
+  for (let index = args.length - 1; index >= 0; index -= 1) {
+    const filePath = normalizeSupportedOpenFilePath(args[index], { requireFile: true });
+    if (filePath) {
+      return filePath;
+    }
+  }
+
+  const splitFilePath = getOpenFilePathFromSplitArgv(args);
+  if (splitFilePath) {
+    return splitFilePath;
+  }
+
+  for (let index = args.length - 1; index >= 0; index -= 1) {
+    const filePath = normalizeSupportedOpenFilePath(args[index]);
+    if (filePath) {
       return filePath;
     }
   }
@@ -593,16 +987,85 @@ function getOpenFilePathFromArgv(argv) {
   return null;
 }
 
+function getOpenFilePathFromSplitArgv(args) {
+  for (let endIndex = args.length - 1; endIndex >= 0; endIndex -= 1) {
+    for (let startIndex = endIndex - 1; startIndex >= 0; startIndex -= 1) {
+      const filePath = normalizeSupportedOpenFilePath(args.slice(startIndex, endIndex + 1).join(" "), {
+        requireFile: true,
+      });
+      if (filePath) {
+        return filePath;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getOpenFilePathFromSecondInstance(argv, additionalData) {
+  const filePathFromData =
+    additionalData && typeof additionalData.openFilePath === "string"
+      ? normalizeSupportedOpenFilePath(additionalData.openFilePath)
+      : null;
+
+  return filePathFromData || getOpenFilePathFromArgv(argv);
+}
+
+function normalizeSupportedOpenFilePath(filePath, { requireFile = false } = {}) {
+  const normalizedPath = normalizeFilePathArg(filePath);
+  if (!normalizedPath || !supportedOpenExtensions.has(path.extname(normalizedPath).toLowerCase())) {
+    return null;
+  }
+
+  if (requireFile && !isFile(normalizedPath)) {
+    return null;
+  }
+
+  return normalizedPath;
+}
+
+function isFile(filePath) {
+  try {
+    return fsSync.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function normalizeFilePathArg(arg) {
-  if (arg.startsWith("file://")) {
+  if (typeof arg !== "string") {
+    return null;
+  }
+
+  const normalizedArg = stripMatchingQuotes(arg.trim());
+  if (!normalizedArg) {
+    return null;
+  }
+
+  if (/^file:\/\//i.test(normalizedArg)) {
     try {
-      return fileURLToPath(arg);
+      return fileURLToPath(normalizedArg);
     } catch {
       return null;
     }
   }
 
-  return path.resolve(arg);
+  return path.resolve(normalizedArg);
+}
+
+function stripMatchingQuotes(value) {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+
+  return value;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getDocumentPathKey(filePath) {
@@ -618,6 +1081,81 @@ function rememberDocumentPath(filePath) {
 
 function isKnownDocumentPath(filePath) {
   return filePath ? knownDocumentPaths.has(getDocumentPathKey(filePath)) : false;
+}
+
+function enqueueOpenFile(filePath) {
+  const normalizedPath = normalizeSupportedOpenFilePath(filePath);
+  if (!normalizedPath) {
+    return false;
+  }
+
+  pendingFilePaths.push(normalizedPath);
+  void flushPendingOpenFiles();
+  return true;
+}
+
+async function flushPendingOpenFiles() {
+  if (
+    isFlushingOpenFiles ||
+    pendingFilePaths.length === 0 ||
+    !mainWindow ||
+    mainWindow.isDestroyed()
+  ) {
+    return [];
+  }
+
+  isFlushingOpenFiles = true;
+  const loadedPayloads = [];
+
+  try {
+    const rendererReady = await waitForRendererReady();
+    if (!rendererReady) {
+      return loadedPayloads;
+    }
+
+    while (pendingFilePaths.length > 0) {
+      const filePath = pendingFilePaths.shift();
+      const payload = await loadFileInWindow(filePath);
+      if (payload) {
+        loadedPayloads.push(payload);
+      }
+    }
+  } finally {
+    isFlushingOpenFiles = false;
+  }
+
+  return loadedPayloads;
+}
+
+async function waitForRendererReady(timeoutMs = 5000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return false;
+    }
+
+    if (mainWindow.webContents.isLoading()) {
+      await delay(50);
+      continue;
+    }
+
+    try {
+      const isReady = await mainWindow.webContents.executeJavaScript(
+        "Boolean(window.__markdownViewerReady && window.loadDocument)",
+        true,
+      );
+      if (isReady) {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+
+    await delay(50);
+  }
+
+  return false;
 }
 
 async function readMarkdownFile(filePath) {
@@ -648,10 +1186,42 @@ async function loadFileInWindow(filePath) {
     const payload = await readMarkdownFile(filePath);
     currentDocumentPath = payload.filePath;
     rememberDocumentPath(payload.filePath);
-    mainWindow.webContents.send("file:loaded", payload);
+    await deliverFileToRenderer(payload);
     return payload;
   } catch (error) {
-    mainWindow.webContents.send("file:error", error.message);
+    await deliverFileErrorToRenderer(error.message);
     return null;
+  }
+}
+
+async function deliverFileToRenderer(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  await mainWindow.webContents.executeJavaScript(
+    `window.loadDocument(${JSON.stringify(payload)}, "파일을 열었습니다");`,
+    true,
+  );
+}
+
+async function deliverFileErrorToRenderer(message) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
+    return;
+  }
+
+  const statusMessage = `파일 열기 실패: ${message}`;
+  try {
+    const rendererReady = await waitForRendererReady(1000);
+    if (!rendererReady) {
+      return;
+    }
+
+    await mainWindow.webContents.executeJavaScript(
+      `window.setMarkdownViewerStatus(${JSON.stringify(statusMessage)});`,
+      true,
+    );
+  } catch {
+    mainWindow.webContents.send("file:error", message);
   }
 }

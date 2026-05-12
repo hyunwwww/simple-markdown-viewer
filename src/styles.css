@@ -29,6 +29,7 @@
   --button-hover: #e9f2f1;
   --shadow: 0 12px 32px rgba(30, 35, 33, 0.08);
   --editor-ratio: 50%;
+  --content-zoom: 100%;
   --outline-width: 250px;
   font-family: "Inter", "Noto Sans KR", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
 }
@@ -277,6 +278,28 @@ input:focus-visible {
   gap: 8px;
 }
 
+#sourceToggleButton {
+  min-width: 82px;
+}
+
+#sourceToggleButton[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--button));
+}
+
+#translateButton {
+  min-width: 58px;
+}
+
+#translateButton[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--button));
+}
+
+#translateButton[aria-busy="true"] {
+  cursor: progress;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(280px, var(--editor-ratio)) 12px minmax(280px, 1fr);
@@ -290,6 +313,19 @@ input:focus-visible {
   grid-template-columns:
     minmax(260px, var(--editor-ratio)) 12px minmax(260px, 1fr) 12px
     minmax(120px, var(--outline-width));
+}
+
+.workspace.editor-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace.editor-collapsed.outline-open {
+  grid-template-columns: minmax(0, 1fr) 12px minmax(120px, var(--outline-width));
+}
+
+.workspace.editor-collapsed .editor-panel,
+.workspace.editor-collapsed .splitter {
+  display: none;
 }
 
 .editor-panel,
@@ -417,6 +453,7 @@ input:focus-visible {
   padding: 18px;
   background: var(--surface);
   color: var(--text);
+  font-size: var(--content-zoom);
   line-height: 1.6;
 }
 
@@ -424,7 +461,29 @@ input:focus-visible {
   min-width: 0;
   overflow: auto;
   padding: 18px 24px 40px;
+  font-size: var(--content-zoom);
   line-height: 1.7;
+}
+
+.zoom-indicator {
+  position: fixed;
+  right: 24px;
+  bottom: 44px;
+  z-index: 5;
+  min-width: 64px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--button);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+}
+
+.zoom-indicator[hidden] {
+  display: none;
 }
 
 .markdown-body :first-child {
@@ -489,6 +548,7 @@ input:focus-visible {
   color: var(--text);
   font-size: 12px;
   line-height: 1;
+  user-select: none;
 }
 
 .code-copy-button:hover,

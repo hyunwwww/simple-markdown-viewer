@@ -1,0 +1,68 @@
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+html[data-preview-mode="dark"] {
+  color-scheme: dark;
+}
+
+html[data-preview-mode="light"] {
+  color-scheme: light;
+}
+
+html[data-preview-theme="local-dark"],
+html[data-preview-theme="css-markdown1"] {
+  background: #0d1117;
+}
+
+html[data-preview-theme="css-markdown9"] {
+  background: #110f14;
+}
+
+html[data-preview-theme="css-markdown10"] {
+  background: #f8f8f8;
+}
+
+html[data-preview-theme="local-light"],
+html[data-preview-theme="css-markdown5"],
+html[data-preview-theme="css-markdown6"],
+html[data-preview-theme="css-markdown7"],
+html[data-preview-theme="css-markdown8"],
+html[data-preview-theme="css-markdown-alt"],
+html[data-preview-theme="css-screen"] {
+  background: #ffffff;
+}
+
+html[data-preview-theme="css-avenir-white"],
+html[data-preview-theme="css-foghorn"],
+html[data-preview-theme="css-markdown"],
+html[data-preview-theme="css-markdown2"],
+html[data-preview-theme="css-markdown3"],
+html[data-preview-theme="css-markdown4"],
+html[data-preview-theme="css-swiss"] {
+  background: #fefefe;
+}
+
+body {
+  min-height: 100vh;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+img {
+  max-width: 100%;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hljs {
+  background: transparent;
+}
