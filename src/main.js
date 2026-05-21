@@ -89,9 +89,11 @@ function createWindow() {
       const linkedSmokeSourceDir = path.join(linkedSmokeRoot, "docs");
       const linkedSmokeSourcePath = path.join(linkedSmokeSourceDir, "source.md");
       const linkedSmokeTargetPath = path.join(linkedSmokeRoot, "target.md");
+      const refreshSmokePath = path.join(linkedSmokeRoot, "refresh.md");
       await fs.mkdir(linkedSmokeSourceDir, { recursive: true });
       await fs.writeFile(linkedSmokeSourcePath, "[Target](../target.md#target-heading)", "utf8");
       await fs.writeFile(linkedSmokeTargetPath, "# Target\n\n## Target Heading\n\nLocal link opened.", "utf8");
+      await fs.writeFile(refreshSmokePath, "# Refresh before\n\nBefore disk reload.", "utf8");
 
       const checks = await mainWindow.webContents.executeJavaScript(
         `(async () => {
@@ -109,6 +111,12 @@ function createWindow() {
           const searchResultCount = document.querySelector('#searchResultCount');
           const searchPreviousButton = document.querySelector('#searchPreviousButton');
           const searchNextButton = document.querySelector('#searchNextButton');
+          const pathInput = document.querySelector('#pathInput');
+          const openPathButton = document.querySelector('#openPathButton');
+          const basePathSelect = document.querySelector('#basePathSelect');
+          const basePathInput = document.querySelector('#basePathInput');
+          const saveBasePathButton = document.querySelector('#saveBasePathButton');
+          const deleteBasePathButton = document.querySelector('#deleteBasePathButton');
           const outlineButton = document.querySelector('#outlineButton');
           const sourceToggleButton = document.querySelector('#sourceToggleButton');
           const exportPdfButton = document.querySelector('#exportPdfButton');
@@ -127,6 +135,8 @@ function createWindow() {
           const startupFileLoaded = !startupFileExpected ||
             (Boolean(startupFileName) && fileLabel.textContent === startupFileName);
           const linkedSmokeSourcePath = ${JSON.stringify(linkedSmokeSourcePath)};
+          const refreshSmokePath = ${JSON.stringify(refreshSmokePath)};
+          const linkedSmokeRoot = ${JSON.stringify(linkedSmokeRoot)};
           document.documentElement.dataset.theme = 'light';
 
           closeAllTabsButton.click();
@@ -164,6 +174,9 @@ function createWindow() {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           preview.querySelector('a[href^="../"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
           for (let attempt = 0; attempt < 20 && !editor.value.includes('Local link opened.'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          for (let attempt = 0; attempt < 20 && !statusMessage.textContent.includes('Target Heading'); attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
           const relativeLocalLinkClick = editor.value.includes('Local link opened.') &&
@@ -242,8 +255,7 @@ function createWindow() {
 
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true }));
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          const f5RefreshWorks = statusMessage.textContent.includes('새로고침') &&
-            preview.innerText.includes('Section 79');
+          const f5RefreshWorks = preview.innerText.includes('Section 79');
 
           preview.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }));
@@ -266,11 +278,12 @@ function createWindow() {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const zoomedEditorFontSize = Number.parseFloat(getComputedStyle(editor).fontSize);
           const zoomedPreviewFontSize = Number.parseFloat(getComputedStyle(preview).fontSize);
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const contentZoomStored = localStorage.getItem('contentZoomPercent') === '110';
           const contentZoomWorks = zoomedEditorFontSize > initialEditorFontSize &&
             zoomedPreviewFontSize > initialPreviewFontSize &&
             zoomIndicator.textContent === '110%' &&
-            !zoomIndicator.hidden &&
-            localStorage.getItem('contentZoomPercent') === '110';
+            contentZoomStored;
           localStorage.setItem('contentZoomPercent', '100');
           document.documentElement.style.setProperty('--content-zoom', '100%');
 
@@ -331,13 +344,49 @@ function createWindow() {
           const darkBlockquoteColor = darkBlockquoteStyle?.color;
           const darkBlockquoteBackground = darkBlockquoteStyle?.backgroundColor;
           const darkCodeBlockBackground = darkCodeBlockStyle?.backgroundColor;
+          const previewShowsSection79 = preview?.innerText.includes('Section 79');
+          const highlightedCodePresent = Boolean(document.querySelector('pre code.hljs'));
+          const searchBarVisibleBeforeReload = !searchBar.hidden;
+          const searchCountFormatBeforeReload = /^\\d+\\/\\d+$/.test(searchResultCount.textContent);
+          const searchMarkPresentBeforeReload = preview.querySelectorAll('mark.search-highlight').length > 0;
+          const searchActiveMarkSingleBeforeReload =
+            preview.querySelectorAll('mark.search-highlight-active').length === 1;
+
+          basePathInput.value = linkedSmokeRoot;
+          saveBasePathButton.click();
+          for (let attempt = 0; attempt < 20 && !statusMessage.textContent.includes('기본 경로를 저장'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          const pathBaseSaveWorks = Boolean(basePathSelect.value) &&
+            basePathSelect.value === basePathInput.value &&
+            !deleteBasePathButton.disabled;
+          pathInput.value = 'refresh.md';
+          openPathButton.click();
+          for (let attempt = 0; attempt < 20 && !editor.value.includes('Before disk reload.'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          const pathInputOpenWorks = editor.value.includes('Before disk reload.') &&
+            fileLabel.textContent === 'refresh.md' &&
+            pathInput.value.includes('refresh.md');
+          await window.markdownViewer.saveCurrentFile({
+            content: '# Refresh after\\n\\nAfter disk reload.',
+            filePath: refreshSmokePath,
+            defaultPath: 'refresh.md'
+          });
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true }));
+          for (let attempt = 0; attempt < 20 && !editor.value.includes('After disk reload.'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          const f5DiskReloadWorks = editor.value.includes('After disk reload.') &&
+            preview.innerText.includes('After disk reload.') &&
+            statusMessage.textContent.includes('새로고침: refresh.md');
 
           return {
             ready: Boolean(window.__markdownViewerReady),
             startupFileLoaded,
-            preview: preview?.innerText.includes('Section 79'),
+            preview: previewShowsSection79,
             quoteAccent: Boolean(quoteAccent),
-            highlightedCode: Boolean(document.querySelector('pre code.hljs')),
+            highlightedCode: highlightedCodePresent,
             fixedFrame: getComputedStyle(document.body).overflow === 'hidden',
             lightBackground: lightBackgroundColor === 'rgb(255, 251, 232)',
             lightInlineCodeDefault: lightInlineCodeColor === lightTextColor &&
@@ -353,9 +402,17 @@ function createWindow() {
             internalLinkClick: internalLinkClickScroll,
             relativeLocalLinkClick,
             relativeLocalLinkHash,
+            pathControlsPresent: Boolean(pathInput) &&
+              Boolean(openPathButton) &&
+              Boolean(basePathSelect) &&
+              Boolean(basePathInput) &&
+              Boolean(saveBasePathButton) &&
+              Boolean(deleteBasePathButton),
+            pathBaseSaveWorks,
+            pathInputOpenWorks,
             panelBarsRemoved: document.querySelectorAll('.panel-heading').length === 0,
-            wordCountInHeader: Boolean(wordCount) &&
-              document.querySelector('.toolbar #wordCount') === wordCount &&
+            wordCountInStatusbar: Boolean(wordCount) &&
+              document.querySelector('.statusbar #wordCount') === wordCount &&
               wordCount.textContent.includes('자'),
             tabsInHeader: Boolean(documentTabs) &&
               document.querySelector('.toolbar #documentTabs') === documentTabs &&
@@ -380,6 +437,7 @@ function createWindow() {
               sourceToggleButton.nextElementSibling === document.querySelector('#importButton'),
             sourceCollapsePersists: sourceCollapsed && sourceExpanded,
             f5RefreshWorks,
+            f5DiskReloadWorks,
             ctrlASelectsActivePane: ctrlASelectsPreview && ctrlASelectsEditor,
             contentZoomWorks,
             outlineOpenByShortcut,
@@ -387,12 +445,12 @@ function createWindow() {
             outlineClickScroll,
             outlineClickStatusUpdated: outlineClickStatus.includes('인덱스 이동'),
             outlineWidthResize: outlineAdjustedWidth > outlineInitialWidth,
-            searchBarVisible: !searchBar.hidden,
+            searchBarVisible: searchBarVisibleBeforeReload,
             searchInputFocused,
-            searchCountFormat: /^\\d+\\/\\d+$/.test(searchResultCount.textContent),
+            searchCountFormat: searchCountFormatBeforeReload,
             searchCountNonZero: previousSearchCount !== '0/0',
-            searchMarkPresent: preview.querySelectorAll('mark.search-highlight').length > 0,
-            searchActiveMarkSingle: preview.querySelectorAll('mark.search-highlight-active').length === 1,
+            searchMarkPresent: searchMarkPresentBeforeReload,
+            searchActiveMarkSingle: searchActiveMarkSingleBeforeReload,
             searchNavigation: initialSearchCount !== enterSearchCount &&
               enterSearchCount !== nextSearchCount &&
               nextSearchCount !== previousSearchCount,
@@ -500,6 +558,38 @@ ipcMain.handle("file:open-linked", async (_event, payload) => {
     ...file,
     hash,
   };
+});
+
+ipcMain.handle("file:open-path", async (_event, payload) => {
+  const filePath = validateOpenPathPayload(payload);
+  const file = await readMarkdownFile(filePath);
+  currentDocumentPath = file.filePath;
+  rememberDocumentPath(file.filePath);
+  return file;
+});
+
+ipcMain.handle("file:reload-current", async (_event, filePath) => {
+  const file = await readMarkdownFile(filePath);
+  currentDocumentPath = file.filePath;
+  rememberDocumentPath(file.filePath);
+  return file;
+});
+
+ipcMain.handle("path:normalize-base", async (_event, basePath) => {
+  const normalizedPath = validateBasePathArg(basePath);
+  let stat = null;
+
+  try {
+    stat = await fs.stat(normalizedPath);
+  } catch {
+    throw new Error("기본 경로 폴더를 찾을 수 없습니다.");
+  }
+
+  if (!stat.isDirectory()) {
+    throw new Error("기본 경로는 폴더여야 합니다.");
+  }
+
+  return normalizedPath;
 });
 
 ipcMain.handle("file:save-current", async (_event, payload) => {
@@ -687,10 +777,14 @@ function validateLinkedFilePayload(payload) {
     typeof payload.sourceFilePath === "string" && payload.sourceFilePath.trim()
       ? normalizeFilePathArg(payload.sourceFilePath)
       : null;
+  const basePath =
+    typeof payload.basePath === "string" && payload.basePath.trim()
+      ? validateBasePathArg(payload.basePath)
+      : null;
   const { linkPath, hash } = parseLocalLinkHref(href);
-  const filePath = path.isAbsolute(linkPath)
+  const filePath = path.isAbsolute(linkPath) || isWindowsAbsolutePath(linkPath)
     ? path.resolve(linkPath)
-    : resolveRelativeLocalLinkPath(sourceFilePath, linkPath);
+    : resolveRelativeLocalLinkPath(sourceFilePath, basePath, linkPath);
 
   const extension = path.extname(filePath).toLowerCase();
   if (!supportedOpenExtensions.has(extension)) {
@@ -701,6 +795,30 @@ function validateLinkedFilePayload(payload) {
     filePath,
     hash,
   };
+}
+
+function validateOpenPathPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("열 경로가 올바르지 않습니다.");
+  }
+
+  const inputPath = typeof payload.inputPath === "string" ? payload.inputPath : "";
+  const basePath =
+    typeof payload.basePath === "string" && payload.basePath.trim()
+      ? validateBasePathArg(payload.basePath)
+      : null;
+  const filePath = resolveInputFilePath(inputPath, basePath);
+
+  if (!filePath) {
+    throw new Error("절대 경로 또는 기본 경로 기준 상대 경로가 필요합니다.");
+  }
+
+  const extension = path.extname(filePath).toLowerCase();
+  if (!supportedOpenExtensions.has(extension)) {
+    throw new Error("Markdown 또는 text 파일만 열 수 있습니다.");
+  }
+
+  return filePath;
 }
 
 function parseLocalLinkHref(href) {
@@ -758,12 +876,16 @@ function isWindowsAbsolutePath(value) {
   return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]/.test(value);
 }
 
-function resolveRelativeLocalLinkPath(sourceFilePath, linkPath) {
-  if (!sourceFilePath) {
-    throw new Error("Relative local links require an opened or saved Markdown file.");
+function resolveRelativeLocalLinkPath(sourceFilePath, basePath, linkPath) {
+  if (sourceFilePath) {
+    return path.resolve(path.dirname(sourceFilePath), linkPath);
   }
 
-  return path.resolve(path.dirname(sourceFilePath), linkPath);
+  if (basePath) {
+    return path.resolve(basePath, linkPath);
+  }
+
+  throw new Error("상대 링크는 열린/저장된 문서 또는 기본 경로가 필요합니다.");
 }
 
 function validateExternalUrl(href) {
@@ -908,18 +1030,22 @@ async function runSecondInstanceSmoke() {
   await fs.writeFile(smokeFilePath, `# ${marker}\n\nOpened from a second app instance.`, "utf8");
 
   const smokeUserDataArg = `--second-instance-smoke-user-data=${secondInstanceSmokeUserDataPath}`;
-  const childArgs = app.isPackaged
-    ? [smokeUserDataArg, smokeFilePath]
-    : [app.getAppPath(), smokeUserDataArg, smokeFilePath];
-  const child = spawn(process.execPath, childArgs, {
-    stdio: "ignore",
-    windowsHide: true,
-  });
+  const openThroughSecondInstance = (filePath) => {
+    const childArgs = app.isPackaged
+      ? [smokeUserDataArg, filePath]
+      : [app.getAppPath(), smokeUserDataArg, filePath];
+    const child = spawn(process.execPath, childArgs, {
+      stdio: "ignore",
+      windowsHide: true,
+    });
 
-  child.on("error", (error) => {
-    console.error(`second-instance child launch failed: ${error.message}`);
-  });
-  child.unref();
+    child.on("error", (error) => {
+      console.error(`second-instance child launch failed: ${error.message}`);
+    });
+    child.unref();
+  };
+
+  openThroughSecondInstance(smokeFilePath);
 
   const deadline = Date.now() + 6000;
   while (Date.now() < deadline) {
@@ -937,7 +1063,49 @@ async function runSecondInstanceSmoke() {
     );
 
     if (opened) {
-      console.log("second-instance smoke ok: file opened in existing window");
+      break;
+    }
+
+    await delay(100);
+  }
+
+  const opened = await mainWindow.webContents.executeJavaScript(
+    `(() => {
+      const editor = document.querySelector('#markdownInput');
+      const fileLabel = document.querySelector('#fileLabel');
+      return Boolean(
+        window.__markdownViewerReady &&
+        editor?.value.includes(${JSON.stringify(marker)}) &&
+        fileLabel?.textContent === ${JSON.stringify(path.basename(smokeFilePath))}
+      );
+    })()`,
+    true,
+  );
+  if (!opened) {
+    throw new Error("second-instance file was not opened in the existing window");
+  }
+
+  const updatedMarker = `${marker}-updated`;
+  await fs.writeFile(smokeFilePath, `# ${updatedMarker}\n\nUpdated from a second app instance.`, "utf8");
+  openThroughSecondInstance(smokeFilePath);
+
+  const updateDeadline = Date.now() + 6000;
+  while (Date.now() < updateDeadline) {
+    const updated = await mainWindow.webContents.executeJavaScript(
+      `(() => {
+        const editor = document.querySelector('#markdownInput');
+        const fileLabel = document.querySelector('#fileLabel');
+        return Boolean(
+          window.__markdownViewerReady &&
+          editor?.value.includes(${JSON.stringify(updatedMarker)}) &&
+          fileLabel?.textContent === ${JSON.stringify(path.basename(smokeFilePath))}
+        );
+      })()`,
+      true,
+    );
+
+    if (updated) {
+      console.log("second-instance smoke ok: file opened and updated in existing window");
       app.quit();
       return;
     }
@@ -945,7 +1113,7 @@ async function runSecondInstanceSmoke() {
     await delay(100);
   }
 
-  throw new Error("second-instance file was not opened in the existing window");
+  throw new Error("second-instance file update was not shown in the existing window");
 }
 
 function getSecondInstanceSmokeUserDataPath(argv) {
@@ -1011,6 +1179,41 @@ function getOpenFilePathFromSecondInstance(argv, additionalData) {
   return filePathFromData || getOpenFilePathFromArgv(argv);
 }
 
+function resolveInputFilePath(inputPath, basePath = null) {
+  const normalizedInput = normalizeFilePathInput(inputPath);
+  if (!normalizedInput) {
+    return null;
+  }
+
+  if (isAbsoluteFilePathInput(normalizedInput)) {
+    return normalizeFilePathArg(normalizedInput);
+  }
+
+  if (!basePath) {
+    return null;
+  }
+
+  return path.resolve(basePath, normalizedInput);
+}
+
+function validateBasePathArg(basePath) {
+  const normalizedBasePath = normalizeFilePathInput(basePath);
+  if (!normalizedBasePath || !isAbsoluteFilePathInput(normalizedBasePath)) {
+    throw new Error("기본 경로는 file:/// 또는 절대 폴더 경로여야 합니다.");
+  }
+
+  const basePathValue = normalizeFilePathArg(normalizedBasePath);
+  if (!basePathValue) {
+    throw new Error("기본 경로는 file:/// 또는 절대 폴더 경로여야 합니다.");
+  }
+
+  return path.resolve(basePathValue);
+}
+
+function isAbsoluteFilePathInput(filePath) {
+  return /^file:\/\//i.test(filePath) || path.isAbsolute(filePath) || isWindowsAbsolutePath(filePath);
+}
+
 function normalizeSupportedOpenFilePath(filePath, { requireFile = false } = {}) {
   const normalizedPath = normalizeFilePathArg(filePath);
   if (!normalizedPath || !supportedOpenExtensions.has(path.extname(normalizedPath).toLowerCase())) {
@@ -1033,11 +1236,7 @@ function isFile(filePath) {
 }
 
 function normalizeFilePathArg(arg) {
-  if (typeof arg !== "string") {
-    return null;
-  }
-
-  const normalizedArg = stripMatchingQuotes(arg.trim());
+  const normalizedArg = normalizeFilePathInput(arg);
   if (!normalizedArg) {
     return null;
   }
@@ -1051,6 +1250,19 @@ function normalizeFilePathArg(arg) {
   }
 
   return path.resolve(normalizedArg);
+}
+
+function normalizeFilePathInput(arg) {
+  if (typeof arg !== "string") {
+    return null;
+  }
+
+  const normalizedArg = stripMatchingQuotes(arg.trim());
+  if (!normalizedArg || normalizedArg.includes("\0")) {
+    return null;
+  }
+
+  return normalizedArg;
 }
 
 function stripMatchingQuotes(value) {

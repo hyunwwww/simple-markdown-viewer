@@ -21,6 +21,12 @@ const searchResultCount = document.querySelector("#searchResultCount");
 const searchPreviousButton = document.querySelector("#searchPreviousButton");
 const searchNextButton = document.querySelector("#searchNextButton");
 const closeSearchButton = document.querySelector("#closeSearchButton");
+const pathOpenForm = document.querySelector("#pathOpenForm");
+const pathInput = document.querySelector("#pathInput");
+const basePathSelect = document.querySelector("#basePathSelect");
+const basePathInput = document.querySelector("#basePathInput");
+const saveBasePathButton = document.querySelector("#saveBasePathButton");
+const deleteBasePathButton = document.querySelector("#deleteBasePathButton");
 const workspace = document.querySelector(".workspace");
 const editorPanel = document.querySelector("#editorPanel");
 const zoomIndicator = document.querySelector("#zoomIndicator");
@@ -49,11 +55,14 @@ let isResizingOutline = false;
 let isTranslationEnabled = false;
 let translationDebounceId = null;
 let translationRunId = 0;
+let basePaths = [];
+let activeBasePath = "";
 
 const splitRatioStorageKey = "editorPreviewSplitRatio";
 const sourceCollapsedStorageKey = "sourcePanelCollapsed";
 const contentZoomStorageKey = "contentZoomPercent";
 const outlineWidthStorageKey = "outlineWidth";
+const pathSettingsStorageKey = "pathOpenSettings";
 const translationBatchSize = 40;
 const groupedTranslationMaxLength = 2800;
 const maxTranslationCacheEntries = 1200;
@@ -322,6 +331,10 @@ function updateFileLabel() {
   fileLabel.textContent = currentFilePath ? currentFileName : "새 문서";
 }
 
+function updatePathInput() {
+  pathInput.value = currentFilePath || "";
+}
+
 function syncActiveDocumentFromEditor({ includeScroll = true } = {}) {
   const activeDocument = getActiveDocument();
   if (!activeDocument) {
@@ -355,6 +368,7 @@ function selectDocument(documentId, { skipSync = false, status = null } = {}) {
   isDirty = Boolean(nextDocument.isDirty);
   markdownInput.value = nextDocument.content || "";
   updateFileLabel();
+  updatePathInput();
   renderMarkdown();
   markdownInput.scrollTop = nextDocument.editorScrollTop || 0;
   preview.scrollTop = nextDocument.previewScrollTop || 0;
@@ -499,6 +513,7 @@ function setFile(fileName, filePath) {
   isDirty = false;
   syncActiveDocumentFromEditor();
   updateFileLabel();
+  updatePathInput();
   updateSaveState();
   renderDocumentTabs();
 }
@@ -644,8 +659,135 @@ function restoreEditorCollapsedState() {
 }
 
 function refreshCurrentView() {
-  renderMarkdown();
-  setStatus("새로고침했습니다.");
+  if (!currentFilePath) {
+    renderMarkdown();
+    setStatus("새로고침했습니다.");
+    return;
+  }
+
+  if (isDirty) {
+    renderMarkdown();
+    setStatus("새로고침했습니다. 저장하지 않은 변경사항이 있어 파일 재읽기는 건너뛰었습니다.");
+    return;
+  }
+
+  window.markdownViewer.reloadCurrentFile(currentFilePath)
+    .then((file) => loadDocument(file, "새로고침"))
+    .catch((error) => setStatus(`새로고침 실패: ${error.message}`));
+}
+
+function loadPathSettings() {
+  let settings = {};
+
+  try {
+    settings = JSON.parse(localStorage.getItem(pathSettingsStorageKey)) || {};
+  } catch {
+    settings = {};
+  }
+
+  basePaths = Array.isArray(settings.basePaths)
+    ? settings.basePaths.filter((basePath) => typeof basePath === "string" && basePath.trim())
+    : [];
+  activeBasePath =
+    typeof settings.activeBasePath === "string" && basePaths.includes(settings.activeBasePath)
+      ? settings.activeBasePath
+      : basePaths[0] || "";
+  renderBasePaths();
+}
+
+function savePathSettings() {
+  localStorage.setItem(
+    pathSettingsStorageKey,
+    JSON.stringify({
+      basePaths,
+      activeBasePath,
+    }),
+  );
+}
+
+function renderBasePaths() {
+  basePathSelect.replaceChildren();
+
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "기본 경로 없음";
+  basePathSelect.append(emptyOption);
+
+  basePaths.forEach((basePath) => {
+    const option = document.createElement("option");
+    option.value = basePath;
+    option.textContent = basePath;
+    basePathSelect.append(option);
+  });
+
+  basePathSelect.value = basePaths.includes(activeBasePath) ? activeBasePath : "";
+  activeBasePath = basePathSelect.value;
+  basePathInput.value = activeBasePath;
+  deleteBasePathButton.disabled = !activeBasePath;
+}
+
+function normalizePathKey(filePath) {
+  return filePath.toLocaleLowerCase("en-US");
+}
+
+function handleBasePathSelect() {
+  activeBasePath = basePathSelect.value;
+  basePathInput.value = activeBasePath;
+  deleteBasePathButton.disabled = !activeBasePath;
+  savePathSettings();
+}
+
+async function saveBasePath() {
+  try {
+    const normalizedPath = await window.markdownViewer.normalizeBasePath(basePathInput.value);
+    const previousPath = basePathSelect.value;
+    const normalizedKey = normalizePathKey(normalizedPath);
+    const previousKey = previousPath ? normalizePathKey(previousPath) : "";
+    basePaths = basePaths.filter((basePath) => {
+      const key = normalizePathKey(basePath);
+      return key !== normalizedKey && key !== previousKey;
+    });
+    basePaths.push(normalizedPath);
+    activeBasePath = normalizedPath;
+    renderBasePaths();
+    savePathSettings();
+    setStatus("기본 경로를 저장했습니다.");
+  } catch (error) {
+    setStatus(`기본 경로 저장 실패: ${error.message}`);
+  }
+}
+
+function deleteBasePath() {
+  const selectedPath = basePathSelect.value;
+  if (!selectedPath) {
+    return;
+  }
+
+  const selectedKey = normalizePathKey(selectedPath);
+  basePaths = basePaths.filter((basePath) => normalizePathKey(basePath) !== selectedKey);
+  activeBasePath = basePaths[0] || "";
+  renderBasePaths();
+  savePathSettings();
+  setStatus("기본 경로를 삭제했습니다.");
+}
+
+async function handleOpenPath(event) {
+  event.preventDefault();
+  const inputPath = pathInput.value.trim();
+  if (!inputPath) {
+    setStatus("열 경로를 입력하세요.");
+    return;
+  }
+
+  try {
+    const file = await window.markdownViewer.openPath({
+      inputPath,
+      basePath: activeBasePath,
+    });
+    loadDocument(file, "경로 열기 완료");
+  } catch (error) {
+    setStatus(`경로 열기 실패: ${error.message}`);
+  }
 }
 
 function rememberContentArea(area) {
@@ -843,6 +985,7 @@ function loadDocument(file, statusPrefix = "파일을 열었습니다") {
   const linkedHash = typeof file.hash === "string" ? file.hash : "";
   const existingDocument = findDocumentByFilePath(file.filePath);
   if (existingDocument) {
+    const isExistingActive = existingDocument.id === activeDocumentId;
     if (!existingDocument.isDirty) {
       existingDocument.fileName = file.fileName;
       existingDocument.filePath = file.filePath;
@@ -850,7 +993,10 @@ function loadDocument(file, statusPrefix = "파일을 열었습니다") {
       existingDocument.editorScrollTop = 0;
       existingDocument.previewScrollTop = 0;
     }
-    selectDocument(existingDocument.id, { status: `${statusPrefix}: ${file.fileName}` });
+    selectDocument(existingDocument.id, {
+      skipSync: isExistingActive,
+      status: `${statusPrefix}: ${file.fileName}`,
+    });
     scrollToLinkedHash(linkedHash);
     return;
   }
@@ -1531,15 +1677,11 @@ async function handlePreviewClick(event) {
 }
 
 async function openLocalPreviewLink(href) {
-  if (!currentFilePath) {
-    setStatus("Relative local links require an opened or saved Markdown file.");
-    return;
-  }
-
   try {
     const file = await window.markdownViewer.openLinkedFile({
       href,
       sourceFilePath: currentFilePath,
+      basePath: activeBasePath,
     });
     loadDocument(file, "Local link opened");
   } catch (error) {
@@ -1810,6 +1952,10 @@ searchInput.addEventListener("keydown", handleSearchKeydown);
 searchPreviousButton.addEventListener("click", () => moveSearch(-1));
 searchNextButton.addEventListener("click", () => moveSearch(1));
 closeSearchButton.addEventListener("click", closeSearch);
+pathOpenForm.addEventListener("submit", handleOpenPath);
+basePathSelect.addEventListener("change", handleBasePathSelect);
+saveBasePathButton.addEventListener("click", saveBasePath);
+deleteBasePathButton.addEventListener("click", deleteBasePath);
 document.addEventListener("keydown", handleGlobalKeydown);
 document.addEventListener("wheel", handleContentWheel, { passive: false });
 splitter.addEventListener("pointerdown", startSplitResize);
@@ -1831,7 +1977,9 @@ restoreEditorRatio();
 restoreEditorCollapsedState();
 restoreContentZoom();
 restoreOutlineWidth();
+loadPathSettings();
 initializeDocuments();
+updatePathInput();
 renderMarkdown();
 window.loadDocument = loadDocument;
 window.setMarkdownViewerStatus = setStatus;

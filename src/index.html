@@ -12,11 +12,6 @@
       <header class="toolbar">
         <div class="title-block">
           <h1 class="visually-hidden">Markdown Viewer</h1>
-          <div class="document-meta" aria-label="문서 상태">
-            <span id="fileLabel">새 문서</span>
-            <span id="saveState">새 문서</span>
-            <span id="wordCount">0자</span>
-          </div>
           <div class="tabs-frame" aria-label="열린 Markdown 문서">
             <div id="documentTabs" class="document-tabs" role="tablist" aria-label="문서 탭"></div>
             <button id="closeAllTabsButton" class="tabs-close-all" type="button">전체닫기</button>
@@ -30,6 +25,19 @@
           <button id="searchNextButton" type="button" title="다음 결과" aria-label="다음 검색 결과">›</button>
           <button id="closeSearchButton" type="button" title="검색 닫기" aria-label="검색 닫기">×</button>
         </form>
+        <div class="path-tools" aria-label="경로 열기">
+          <form id="pathOpenForm" class="path-open">
+            <label class="visually-hidden" for="pathInput">경로로 열기</label>
+            <input id="pathInput" type="text" autocomplete="off" placeholder="C:\path\document.md 또는 file:///C:/path/document.md" />
+            <button id="openPathButton" type="submit">경로 열기</button>
+          </form>
+          <div class="base-path-manager" aria-label="기본 경로">
+            <select id="basePathSelect" title="기본 경로"></select>
+            <input id="basePathInput" type="text" autocomplete="off" placeholder="C:\path\base-folder" />
+            <button id="saveBasePathButton" type="button">경로 저장</button>
+            <button id="deleteBasePathButton" type="button">삭제</button>
+          </div>
+        </div>
         <div class="actions" aria-label="문서 작업">
           <button id="outlineButton" type="button" aria-pressed="false" title="Outline (F4)">Outline</button>
           <button id="sourceToggleButton" type="button" aria-controls="editorPanel" aria-expanded="true" aria-pressed="false" title="왼쪽 원문 프레임 접기">원문 접기</button>
@@ -103,6 +111,11 @@ console.log(theme);
 
       <footer class="statusbar">
         <span id="statusMessage">준비됨</span>
+        <div class="document-meta" aria-label="문서 상태">
+          <span id="fileLabel">새 문서</span>
+          <span id="saveState">새 문서</span>
+          <span id="wordCount">0자</span>
+        </div>
       </footer>
     </div>
 

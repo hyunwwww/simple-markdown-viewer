@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("markdownViewer", {
   openFile: () => ipcRenderer.invoke("file:open"),
   openLinkedFile: (payload) => ipcRenderer.invoke("file:open-linked", payload),
+  openPath: (payload) => ipcRenderer.invoke("file:open-path", payload),
+  reloadCurrentFile: (filePath) => ipcRenderer.invoke("file:reload-current", filePath),
+  normalizeBasePath: (basePath) => ipcRenderer.invoke("path:normalize-base", basePath),
   saveCurrentFile: (payload) => ipcRenderer.invoke("file:save-current", payload),
   exportFile: (payload) => ipcRenderer.invoke("file:export", payload),
   exportPdf: (payload) => ipcRenderer.invoke("file:export-pdf", payload),
