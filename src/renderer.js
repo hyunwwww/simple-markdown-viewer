@@ -98,6 +98,7 @@ function renderMarkdown() {
   const outlineItems = assignHeadingIds(preview);
   decorateQuoteAccent(preview);
   highlightCodeBlocks(preview);
+  resolveImages(preview);
   renderOutline(outlineItems);
   syncScrollPosition(markdownInput, preview);
   wordCount.textContent = `${markdown.length.toLocaleString("ko-KR")}자`;
@@ -203,6 +204,23 @@ function highlightCodeBlocks(root) {
     hljs.highlightElement(block);
     attachCodeCopyButton(block);
   });
+}
+
+async function resolveImages(root) {
+  if (!currentFilePath) return;
+  const imgs = [...root.querySelectorAll("img[src]")];
+  await Promise.all(
+    imgs.map(async (img) => {
+      const src = img.getAttribute("src");
+      if (!src || src.startsWith("data:") || src.startsWith("http://") || src.startsWith("https://")) return;
+      try {
+        const dataUrl = await window.markdownViewer.loadImage({ src, filePath: currentFilePath });
+        img.src = dataUrl;
+      } catch {
+        // leave broken image as-is
+      }
+    })
+  );
 }
 
 function attachCodeCopyButton(block) {

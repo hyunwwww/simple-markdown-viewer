@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("markdownViewer", {
   copyText: (text) => ipcRenderer.invoke("clipboard:write", text),
   translateToKorean: (texts) => ipcRenderer.invoke("translate:ko", texts),
   openExternal: (href) => ipcRenderer.invoke("shell:openExternal", href),
+  loadImage: (payload) => ipcRenderer.invoke("image:load", payload),
   onFileLoaded: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("file:loaded", listener);

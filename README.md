@@ -39,6 +39,16 @@ npm run dist
 
 설치 후 `.md` 또는 `.markdown` 파일을 이 앱으로 연결하면 Windows 탐색기에서 파일을 바로 열 수 있습니다.
 
+## 테마 설정
+
+앱 시작 시 `theme.cfg`를 읽어 라이트/다크 모드 색상을 주입합니다.
+
+- 개발 실행: 프로젝트 루트의 `theme.cfg`
+- 설치본/포터블 실행: 실행 파일 옆의 `theme.cfg`
+- 폴백: 패키지 리소스의 `resources/theme.cfg`
+
+`npm run dist`는 포터블 실행 파일과 같은 `dist/` 폴더에 `theme.cfg`도 복사합니다. `theme.cfg`를 수정한 뒤 앱을 다시 시작하면 변경된 색상이 적용됩니다.
+
 현재 생성된 설치 파일:
 
 ```text

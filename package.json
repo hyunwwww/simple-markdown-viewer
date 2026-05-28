@@ -6,9 +6,9 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer.js && node --check scripts/copy-portable-theme.js",
     "smoke": "electron . --smoke-test",
-    "dist": "electron-builder --win nsis"
+    "dist": "electron-builder --win && node scripts/copy-portable-theme.js"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
@@ -33,8 +33,14 @@
       "node_modules/**/*",
       "package.json"
     ],
+    "extraFiles": [
+      { "from": "theme.cfg", "to": "theme.cfg" }
+    ],
+    "extraResources": [
+      { "from": "theme.cfg", "to": "theme.cfg" }
+    ],
     "win": {
-      "target": "nsis",
+      "target": ["nsis", "portable"],
       "icon": "build/icon.ico"
     },
     "fileAssociations": [

@@ -26,6 +26,7 @@ const exportFiltersByType = {
   html: [{ name: "HTML", extensions: ["html"] }],
   pdf: [{ name: "PDF", extensions: ["pdf"] }],
 };
+const themeConfigFileName = "theme.cfg";
 let mainWindow = null;
 const initialOpenFilePath = getOpenFilePathFromArgv(process.argv);
 const pendingFilePaths = initialOpenFilePath ? [initialOpenFilePath] : [];
@@ -48,6 +49,13 @@ function createWindow() {
       sandbox: true,
     },
   });
+  let themeCssPromise = null;
+  const ensureThemeCssApplied = () => {
+    if (!themeCssPromise) {
+      themeCssPromise = applyThemeCss(mainWindow.webContents);
+    }
+    return themeCssPromise;
+  };
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
@@ -66,6 +74,7 @@ function createWindow() {
     }
   });
   mainWindow.webContents.once("did-finish-load", async () => {
+    await ensureThemeCssApplied();
     const startupPayloads = await flushPendingOpenFiles();
     const startupPayload = startupPayloads[0] || null;
 
@@ -138,6 +147,7 @@ function createWindow() {
           const refreshSmokePath = ${JSON.stringify(refreshSmokePath)};
           const linkedSmokeRoot = ${JSON.stringify(linkedSmokeRoot)};
           document.documentElement.dataset.theme = 'light';
+          await new Promise((resolve) => requestAnimationFrame(resolve));
 
           closeAllTabsButton.click();
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -351,6 +361,10 @@ function createWindow() {
           const searchMarkPresentBeforeReload = preview.querySelectorAll('mark.search-highlight').length > 0;
           const searchActiveMarkSingleBeforeReload =
             preview.querySelectorAll('mark.search-highlight-active').length === 1;
+          const searchActiveMark = preview.querySelector('mark.search-highlight-active');
+          const darkSearchActiveStyle = searchActiveMark ? getComputedStyle(searchActiveMark) : null;
+          const darkSearchActiveBackground = darkSearchActiveStyle?.backgroundColor;
+          const darkSearchActiveColor = darkSearchActiveStyle?.color;
 
           basePathInput.value = linkedSmokeRoot;
           saveBasePathButton.click();
@@ -388,16 +402,18 @@ function createWindow() {
             quoteAccent: Boolean(quoteAccent),
             highlightedCode: highlightedCodePresent,
             fixedFrame: getComputedStyle(document.body).overflow === 'hidden',
-            lightBackground: lightBackgroundColor === 'rgb(255, 251, 232)',
+            lightBackground: lightBackgroundColor === 'rgb(239, 241, 245)',
             lightInlineCodeDefault: lightInlineCodeColor === lightTextColor &&
-              lightInlineCodeBackground === 'rgb(255, 251, 232)',
-            lightQuoteDefault: lightQuoteColor === lightTextColor &&
-              lightQuoteBackground === 'rgb(255, 251, 232)',
-            darkQuoteStyle: darkQuoteColor === 'rgb(212, 51, 131)' &&
-              darkQuoteBackground === 'rgb(22, 27, 34)' &&
-              darkBlockquoteColor === 'rgb(112, 146, 190)' &&
-            darkBlockquoteBackground === 'rgb(22, 27, 34)',
-            darkCodeBlockStyle: darkCodeBlockBackground === 'rgb(22, 27, 34)',
+              lightInlineCodeBackground === 'rgb(204, 208, 218)',
+            lightQuoteDefault: lightQuoteColor === 'rgb(136, 57, 239)' &&
+              lightQuoteBackground === 'rgb(230, 233, 239)',
+            darkQuoteStyle: darkQuoteColor === 'rgb(230, 219, 116)' &&
+              darkQuoteBackground === 'rgb(62, 61, 50)' &&
+              darkBlockquoteColor === 'rgb(248, 248, 242)' &&
+            darkBlockquoteBackground === 'rgb(62, 61, 50)',
+            darkCodeBlockStyle: darkCodeBlockBackground === 'rgb(62, 61, 50)',
+            darkSearchThemeStyle: darkSearchActiveBackground === 'rgb(249, 38, 114)' &&
+              darkSearchActiveColor === 'rgb(248, 248, 242)',
             linkedScrollReady: linkedScrollAfterEditorScroll,
             internalLinkClick: internalLinkClickScroll,
             relativeLocalLinkClick,
@@ -485,7 +501,10 @@ function createWindow() {
   });
 
   if (!isSmokeTest) {
-    mainWindow.once("ready-to-show", () => mainWindow.show());
+    mainWindow.once("ready-to-show", async () => {
+      await ensureThemeCssApplied();
+      mainWindow.show();
+    });
   }
   mainWindow.loadFile(path.join(__dirname, "index.html"));
 }
@@ -689,6 +708,15 @@ ipcMain.handle("shell:openExternal", async (_event, href) => {
   return true;
 });
 
+ipcMain.handle("image:load", async (_event, payload) => {
+  const absolutePath = validateImageLoadPayload(payload);
+  const data = await fs.readFile(absolutePath);
+  const ext = path.extname(absolutePath).toLowerCase().slice(1);
+  const mimeTypes = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", bmp: "image/bmp", ico: "image/x-icon", avif: "image/avif" };
+  const mime = mimeTypes[ext] || "image/png";
+  return `data:${mime};base64,${data.toString("base64")}`;
+});
+
 function validateSavePayload(payload, fallbackName = "document.md") {
   if (!payload || typeof payload !== "object") {
     throw new Error("저장할 데이터가 없습니다.");
@@ -886,6 +914,254 @@ function resolveRelativeLocalLinkPath(sourceFilePath, basePath, linkPath) {
   }
 
   throw new Error("상대 링크는 열린/저장된 문서 또는 기본 경로가 필요합니다.");
+}
+
+function parseThemeCfg(filePath) {
+  const content = fsSync.readFileSync(filePath, "utf8");
+  const result = {};
+  let section = null;
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const sectionMatch = line.match(/^\[(\w+)\]$/);
+    if (sectionMatch) {
+      section = sectionMatch[1];
+      result[section] = {};
+      continue;
+    }
+
+    const kvMatch = line.match(/^([\w-]+)\s*=\s*(.+)$/);
+    if (kvMatch && section) {
+      result[section][kvMatch[1]] = kvMatch[2].trim();
+    }
+  }
+
+  return result;
+}
+
+function getThemeCfgCandidates() {
+  const candidates = [];
+
+  if (!app.isPackaged) {
+    candidates.push(path.join(__dirname, "..", themeConfigFileName));
+    return candidates;
+  }
+
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    candidates.push(path.join(process.env.PORTABLE_EXECUTABLE_DIR, themeConfigFileName));
+  }
+
+  candidates.push(path.join(path.dirname(app.getPath("exe")), themeConfigFileName));
+  candidates.push(path.join(process.resourcesPath, themeConfigFileName));
+
+  return [...new Set(candidates)];
+}
+
+function loadThemeCfg() {
+  for (const cfgPath of getThemeCfgCandidates()) {
+    if (!fsSync.existsSync(cfgPath)) {
+      continue;
+    }
+
+    try {
+      const cfg = parseThemeCfg(cfgPath);
+      console.info(`[theme] loaded ${cfgPath}`);
+      return cfg;
+    } catch (error) {
+      console.warn(`[theme] failed to read ${cfgPath}: ${error.message}`);
+    }
+  }
+
+  console.warn("[theme] theme.cfg not found; using built-in defaults");
+  return {};
+}
+
+async function applyThemeCss(webContents) {
+  try {
+    await webContents.insertCSS(buildThemeCss(loadThemeCfg()), { cssOrigin: "user" });
+    return true;
+  } catch (error) {
+    console.error(`[theme] failed to apply theme CSS: ${error.message}`);
+    return false;
+  }
+}
+
+function safeCssColor(value, fallback) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 100) {
+    return fallback;
+  }
+
+  if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\([0-9a-zA-Z.\s,%/+_-]+\)$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^[a-zA-Z]+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return fallback;
+}
+
+function safeCssUtilityValue(value, fallback) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 180) {
+    return fallback;
+  }
+
+  return /^[#a-zA-Z0-9\s().,%+-]+$/.test(trimmed) ? trimmed : fallback;
+}
+
+function buildThemeCss(cfg) {
+  const l = cfg.light || {};
+  const d = cfg.dark || {};
+  const lc = (k, fb) => safeCssColor(l[k], fb);
+  const dc = (k, fb) => safeCssColor(d[k], fb);
+  const lu = (k, fb) => safeCssUtilityValue(l[k], fb);
+  const du = (k, fb) => safeCssUtilityValue(d[k], fb);
+
+  return `
+:root {
+  --bg: ${lc("bg", "#fffbe8")} !important;
+  --surface: ${lc("surface", "#fffbe8")} !important;
+  --surface-muted: ${lc("surface-muted", "#eef5ed")} !important;
+  --cell-bg: ${lc("cell-bg", "#fffbe8")} !important;
+  --code-bg: ${lc("code-bg", "#ece8d9")} !important;
+  --code-text: ${lc("code-text", "#000000")} !important;
+  --border: ${lc("border", "#ccd5d8")} !important;
+  --text: ${lc("text", "#000000")} !important;
+  --muted: ${lc("muted", "#626d70")} !important;
+  --accent: ${lc("accent", "#1d6f6f")} !important;
+  --accent-strong: ${lc("accent-strong", "#16595a")} !important;
+  --quote-bg: ${lc("quote-bg", "#fffbe8")} !important;
+  --quote-text: ${lc("quote-text", "#000000")} !important;
+  --quote-border: ${lc("quote-border", "#cbd8c8")} !important;
+  --blockquote-text: ${lc("blockquote-text", "#000000")} !important;
+  --blockquote-border: ${lc("blockquote-border", "#cbd8c8")} !important;
+  --button: ${lc("button", "#fffbe8")} !important;
+  --button-hover: ${lc("button-hover", "#e9f2f1")} !important;
+  --search-highlight-bg: ${lc("search-highlight-bg", "#f6d66f")} !important;
+  --search-highlight-active-bg: ${lc("search-highlight-active-bg", "#d43383")} !important;
+  --search-highlight-active-text: ${lc("search-highlight-active-text", "#ffffff")} !important;
+  --shadow: ${lu("shadow", "0 12px 32px rgba(30, 35, 33, 0.08)")} !important;
+}
+:root[data-theme="dark"] {
+  --bg: ${dc("bg", "#0c0c0c")} !important;
+  --surface: ${dc("surface", "#0c0c0c")} !important;
+  --surface-muted: ${dc("surface-muted", "#1a1a1a")} !important;
+  --cell-bg: ${dc("cell-bg", "#161b22")} !important;
+  --code-bg: ${dc("code-bg", "#1a1a1a")} !important;
+  --code-text: ${dc("code-text", "#cccccc")} !important;
+  --border: ${dc("border", "#3b3b3b")} !important;
+  --text: ${dc("text", "#cccccc")} !important;
+  --muted: ${dc("muted", "#767676")} !important;
+  --accent: ${dc("accent", "#3b78ff")} !important;
+  --accent-strong: ${dc("accent-strong", "#6fa0ff")} !important;
+  --quote-bg: ${dc("quote-bg", "#1a1a1a")} !important;
+  --quote-text: ${dc("quote-text", "#3b78ff")} !important;
+  --quote-border: ${dc("quote-border", "#3b78ff")} !important;
+  --blockquote-text: ${dc("blockquote-text", "#767676")} !important;
+  --blockquote-border: ${dc("blockquote-border", "#3b78ff")} !important;
+  --button: ${dc("button", "#1a1a1a")} !important;
+  --button-hover: ${dc("button-hover", "#2b2b2b")} !important;
+  --search-highlight-bg: ${dc("search-highlight-bg", "#f6d66f")} !important;
+  --search-highlight-active-bg: ${dc("search-highlight-active-bg", "#d43383")} !important;
+  --search-highlight-active-text: ${dc("search-highlight-active-text", "#ffffff")} !important;
+  --shadow: ${du("shadow", "0 12px 36px rgba(0, 0, 0, 0.28)")} !important;
+}
+:root:not([data-theme="dark"]) .hljs-keyword,
+:root:not([data-theme="dark"]) .hljs-selector-tag,
+:root:not([data-theme="dark"]) .hljs-subst { color: ${lc("hl-keyword", "#cf222e")} !important; }
+:root:not([data-theme="dark"]) .hljs-literal,
+:root:not([data-theme="dark"]) .hljs-number,
+:root:not([data-theme="dark"]) .hljs-tag .hljs-attr,
+:root:not([data-theme="dark"]) .hljs-template-variable,
+:root:not([data-theme="dark"]) .hljs-variable { color: ${lc("hl-number", "#0550ae")} !important; }
+:root:not([data-theme="dark"]) .hljs-doctag,
+:root:not([data-theme="dark"]) .hljs-string,
+:root:not([data-theme="dark"]) .hljs-title,
+:root:not([data-theme="dark"]) .hljs-section,
+:root:not([data-theme="dark"]) .hljs-selector-id { color: ${lc("hl-string", "#0a3069")} !important; }
+:root:not([data-theme="dark"]) .hljs-built_in,
+:root:not([data-theme="dark"]) .hljs-type,
+:root:not([data-theme="dark"]) .hljs-class .hljs-title { color: ${lc("hl-type", "#953800")} !important; }
+:root:not([data-theme="dark"]) .hljs-attribute,
+:root:not([data-theme="dark"]) .hljs-name,
+:root:not([data-theme="dark"]) .hljs-tag { color: ${lc("hl-attribute", "#116329")} !important; }
+:root:not([data-theme="dark"]) .hljs-comment,
+:root:not([data-theme="dark"]) .hljs-quote { color: ${lc("hl-comment", "#6e7781")} !important; font-style: italic; }
+:root:not([data-theme="dark"]) .hljs-meta,
+:root:not([data-theme="dark"]) .hljs-symbol,
+:root:not([data-theme="dark"]) .hljs-bullet,
+:root:not([data-theme="dark"]) .hljs-link { color: ${lc("hl-meta", "#8250df")} !important; }
+:root:not([data-theme="dark"]) .hljs-deletion { color: ${lc("hl-deletion-fg", "#82071e")} !important; background: ${lc("hl-deletion-bg", "rgba(255,129,130,0.2)")} !important; }
+:root:not([data-theme="dark"]) .hljs-addition { color: ${lc("hl-addition-fg", "#116329")} !important; background: ${lc("hl-addition-bg", "rgba(84,174,84,0.1)")} !important; }
+:root[data-theme="dark"] .hljs-keyword,
+:root[data-theme="dark"] .hljs-selector-tag,
+:root[data-theme="dark"] .hljs-subst { color: ${dc("hl-keyword", "#3b78ff")} !important; }
+:root[data-theme="dark"] .hljs-literal,
+:root[data-theme="dark"] .hljs-number,
+:root[data-theme="dark"] .hljs-tag .hljs-attr,
+:root[data-theme="dark"] .hljs-template-variable,
+:root[data-theme="dark"] .hljs-variable { color: ${dc("hl-number", "#16c60c")} !important; }
+:root[data-theme="dark"] .hljs-doctag,
+:root[data-theme="dark"] .hljs-string,
+:root[data-theme="dark"] .hljs-title,
+:root[data-theme="dark"] .hljs-section,
+:root[data-theme="dark"] .hljs-selector-id { color: ${dc("hl-string", "#13a10e")} !important; }
+:root[data-theme="dark"] .hljs-built_in,
+:root[data-theme="dark"] .hljs-type,
+:root[data-theme="dark"] .hljs-class .hljs-title { color: ${dc("hl-type", "#f9f1a5")} !important; }
+:root[data-theme="dark"] .hljs-attribute,
+:root[data-theme="dark"] .hljs-name,
+:root[data-theme="dark"] .hljs-tag { color: ${dc("hl-attribute", "#61d6d6")} !important; }
+:root[data-theme="dark"] .hljs-comment,
+:root[data-theme="dark"] .hljs-quote { color: ${dc("hl-comment", "#767676")} !important; font-style: italic; }
+:root[data-theme="dark"] .hljs-meta,
+:root[data-theme="dark"] .hljs-symbol,
+:root[data-theme="dark"] .hljs-bullet,
+:root[data-theme="dark"] .hljs-link { color: ${dc("hl-meta", "#3b78ff")} !important; }
+:root[data-theme="dark"] .hljs-deletion { color: ${dc("hl-deletion-fg", "#e74856")} !important; background: ${dc("hl-deletion-bg", "rgba(231,72,86,0.18)")} !important; }
+:root[data-theme="dark"] .hljs-addition { color: ${dc("hl-addition-fg", "#16c60c")} !important; background: ${dc("hl-addition-bg", "rgba(22,198,12,0.15)")} !important; }
+`;
+}
+
+function validateImageLoadPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid image payload.");
+  }
+
+  const { src, filePath } = payload;
+  if (typeof src !== "string" || !src) throw new Error("Invalid image src.");
+  if (typeof filePath !== "string" || !filePath) throw new Error("No file path for image resolution.");
+
+  const allowedExts = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif"]);
+  let absolutePath;
+  if (path.isAbsolute(src)) {
+    absolutePath = path.normalize(src);
+  } else {
+    absolutePath = path.resolve(path.dirname(filePath), src);
+  }
+
+  if (!allowedExts.has(path.extname(absolutePath).toLowerCase())) {
+    throw new Error("Unsupported image type.");
+  }
+
+  return absolutePath;
 }
 
 function validateExternalUrl(href) {

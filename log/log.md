@@ -1,5 +1,13 @@
 # Work Log
 
+## 2026-05-29
+
+- revert: restore src/styles.css to HEAD (5eebca3) — undo session toolbar layout changes
+- feat: replace theme.cfg with Catppuccin Latte (light) + Codex Monokai (dark)
+- fix: align runtime theme.cfg lookup with packaged executable and resource locations
+- build: copy portable theme.cfg sidecar after Windows packaging
+- test: cover theme.cfg-driven colors in smoke checks
+
 ## 2026-05-10
 
 - Created initial project agent policy in `AGENT.md`.

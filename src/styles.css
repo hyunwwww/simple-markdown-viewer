@@ -27,6 +27,9 @@
   --blockquote-border: #cbd8c8;
   --button: #fffbe8;
   --button-hover: #e9f2f1;
+  --search-highlight-bg: #f6d66f;
+  --search-highlight-active-bg: #d43383;
+  --search-highlight-active-text: #ffffff;
   --shadow: 0 12px 32px rgba(30, 35, 33, 0.08);
   --editor-ratio: 50%;
   --content-zoom: 100%;
@@ -54,6 +57,9 @@
   --blockquote-border: #7092be;
   --button: #161b22;
   --button-hover: #21262d;
+  --search-highlight-bg: #f6d66f;
+  --search-highlight-active-bg: #d43383;
+  --search-highlight-active-text: #ffffff;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
 }
 
@@ -643,14 +649,14 @@ input:focus-visible {
 .search-highlight {
   border-radius: 3px;
   padding: 0 2px;
-  background: #f6d66f;
+  background: var(--search-highlight-bg);
   color: inherit;
 }
 
 .search-highlight-active {
-  background: #d43383;
-  color: #ffffff;
-  box-shadow: 0 0 0 2px color-mix(in srgb, #d43383 36%, transparent);
+  background: var(--search-highlight-active-bg);
+  color: var(--search-highlight-active-text);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--search-highlight-active-bg) 36%, transparent);
 }
 
 .hljs {
