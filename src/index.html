@@ -14,7 +14,7 @@
           <h1 class="visually-hidden">Markdown Viewer</h1>
           <div class="tabs-frame" aria-label="열린 Markdown 문서">
             <div id="documentTabs" class="document-tabs" role="tablist" aria-label="문서 탭"></div>
-            <button id="closeAllTabsButton" class="tabs-close-all" type="button">전체닫기</button>
+            <button id="closeAllTabsButton" class="tabs-close-all" type="button">탭 전체닫기</button>
           </div>
         </div>
         <form id="searchBar" class="search-bar" role="search" hidden>
@@ -29,25 +29,30 @@
           <form id="pathOpenForm" class="path-open">
             <label class="visually-hidden" for="pathInput">경로로 열기</label>
             <input id="pathInput" type="text" autocomplete="off" placeholder="C:\path\document.md 또는 file:///C:/path/document.md" />
-            <button id="openPathButton" type="submit">경로 열기</button>
+            <button id="openPathButton" type="submit">열기</button>
           </form>
           <div class="base-path-manager" aria-label="기본 경로">
             <select id="basePathSelect" title="기본 경로"></select>
             <input id="basePathInput" type="text" autocomplete="off" placeholder="C:\path\base-folder" />
-            <button id="saveBasePathButton" type="button">경로 저장</button>
+            <button id="saveBasePathButton" type="button">저장</button>
             <button id="deleteBasePathButton" type="button">삭제</button>
           </div>
         </div>
         <div class="actions" aria-label="문서 작업">
           <button id="outlineButton" type="button" aria-pressed="false" title="Outline (F4)">Outline</button>
-          <button id="sourceToggleButton" type="button" aria-controls="editorPanel" aria-expanded="true" aria-pressed="false" title="왼쪽 원문 프레임 접기">원문 접기</button>
+          <button id="sourceToggleButton" type="button" aria-controls="editorPanel" aria-expanded="true" aria-pressed="false" title="왼쪽 원문 프레임 접기">원문</button>
           <button id="importButton" type="button">가져오기</button>
-          <button id="exportMarkdownButton" type="button">MD 내보내기</button>
-          <button id="exportHtmlButton" type="button">HTML 내보내기</button>
-          <button id="exportPdfButton" type="button">PDF 내보내기</button>
+          <div class="export-menu">
+            <button id="exportMenuButton" class="export-menu-trigger" type="button" aria-haspopup="true">내보내기</button>
+            <div class="export-menu-list" role="menu" aria-label="내보내기 형식">
+              <button id="exportMarkdownButton" type="button" role="menuitem">MD내보내기</button>
+              <button id="exportHtmlButton" type="button" role="menuitem">HTML내보내기</button>
+              <button id="exportPdfButton" type="button" role="menuitem">PDF내보내기</button>
+            </div>
+          </div>
           <button id="copyMarkdownButton" type="button">원문 복사</button>
           <button id="translateButton" type="button" aria-pressed="false" title="우측 뷰어를 한국어로 번역">번역</button>
-          <button id="themeButton" type="button" aria-pressed="false">다크 모드</button>
+          <button id="themeButton" class="theme-icon-button" type="button" aria-pressed="false" aria-label="다크 모드" title="다크 모드">☾</button>
         </div>
       </header>
 

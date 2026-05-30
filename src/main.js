@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, clipboard, shell, net } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, shell, net } = require("electron");
 const { spawn } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
@@ -16,6 +16,29 @@ const translateEndpoint = "https://translate.googleapis.com/translate_a/single";
 const maxTranslateChunkLength = 3500;
 const markdownFilters = [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }];
 const supportedOpenExtensions = new Set([".md", ".markdown", ".txt"]);
+// 뷰어로 열지 않고 OS 연결 프로그램(새 창)으로 여는 외부 파일 형식
+const externalOpenExtensions = new Set([
+  ".svg",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".ico",
+  ".avif",
+  ".tif",
+  ".tiff",
+  ".pdf",
+  ".html",
+  ".htm",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+]);
 const exportFilters = [
   { name: "Markdown", extensions: ["md"] },
   { name: "HTML", extensions: ["html"] },
@@ -58,6 +81,12 @@ function createWindow() {
   };
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    const menu = buildEditContextMenu(params);
+    if (menu) {
+      menu.popup({ window: mainWindow });
+    }
+  });
   mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
     if (targetUrl !== mainWindow.webContents.getURL()) {
       event.preventDefault();
@@ -103,6 +132,8 @@ function createWindow() {
       await fs.writeFile(linkedSmokeSourcePath, "[Target](../target.md#target-heading)", "utf8");
       await fs.writeFile(linkedSmokeTargetPath, "# Target\n\n## Target Heading\n\nLocal link opened.", "utf8");
       await fs.writeFile(refreshSmokePath, "# Refresh before\n\nBefore disk reload.", "utf8");
+      const externalSmokeImagePath = path.join(linkedSmokeRoot, "diagram.svg");
+      await fs.writeFile(externalSmokeImagePath, "<svg xmlns='http://www.w3.org/2000/svg'></svg>", "utf8");
 
       const checks = await mainWindow.webContents.executeJavaScript(
         `(async () => {
@@ -145,6 +176,7 @@ function createWindow() {
             (Boolean(startupFileName) && fileLabel.textContent === startupFileName);
           const linkedSmokeSourcePath = ${JSON.stringify(linkedSmokeSourcePath)};
           const refreshSmokePath = ${JSON.stringify(refreshSmokePath)};
+          const externalSmokeImagePath = ${JSON.stringify(externalSmokeImagePath)};
           const linkedSmokeRoot = ${JSON.stringify(linkedSmokeRoot)};
           document.documentElement.dataset.theme = 'light';
           await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -155,14 +187,14 @@ function createWindow() {
           window.loadDocument({ fileName: 'beta.md', filePath: 'C:\\\\smoke\\\\beta.md', content: '# Beta' }, 'Smoke');
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           let tabNodes = [...documentTabs.querySelectorAll('.document-tab')];
-          const tabBoxLimit = tabsFrame.getBoundingClientRect().width <= window.innerWidth * 0.5 + 1;
+          const tabBoxLimit = tabsFrame.getBoundingClientRect().width <= 720 + 1;
           const tabDefaultSize = tabNodes.length >= 2 &&
-            Math.round(tabNodes[0].getBoundingClientRect().height) === 35 &&
+            Math.round(tabNodes[0].getBoundingClientRect().height) === 30 &&
             tabNodes[0].getBoundingClientRect().width <= 140;
           const tabsCreated = tabNodes.length === 2 &&
             tabNodes[0].textContent.includes('alpha.md') &&
             tabNodes[1].textContent.includes('beta.md') &&
-            closeAllTabsButton.textContent === '전체닫기';
+            closeAllTabsButton.textContent === '탭 전체닫기';
           tabNodes[0]?.click();
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const tabSelectWorks = editor.value.includes('# Alpha');
@@ -251,7 +283,7 @@ function createWindow() {
           const sourceCollapsed = workspace.classList.contains('editor-collapsed') &&
             editorPanel.hidden &&
             splitter.hidden &&
-            sourceToggleButton.textContent === '원문 펼치기' &&
+            sourceToggleButton.textContent === '원문' &&
             sourceToggleButton.getAttribute('aria-expanded') === 'false' &&
             localStorage.getItem('sourcePanelCollapsed') === 'true';
           sourceToggleButton.click();
@@ -259,7 +291,7 @@ function createWindow() {
           const sourceExpanded = !workspace.classList.contains('editor-collapsed') &&
             !editorPanel.hidden &&
             !splitter.hidden &&
-            sourceToggleButton.textContent === '원문 접기' &&
+            sourceToggleButton.textContent === '원문' &&
             sourceToggleButton.getAttribute('aria-expanded') === 'true' &&
             localStorage.getItem('sourcePanelCollapsed') === 'false';
 
@@ -395,6 +427,26 @@ function createWindow() {
             preview.innerText.includes('After disk reload.') &&
             statusMessage.textContent.includes('새로고침: refresh.md');
 
+          const baseBeforeAbsoluteOpen = basePathSelect.value;
+          pathInput.value = refreshSmokePath;
+          openPathButton.click();
+          for (let attempt = 0; attempt < 20 && !statusMessage.textContent.includes('경로 열기 완료'); attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          const absolutePathOpenKeepsBase = editor.value.includes('After disk reload.') &&
+            fileLabel.textContent === 'refresh.md' &&
+            basePathSelect.value === baseBeforeAbsoluteOpen &&
+            basePathSelect.value === linkedSmokeRoot;
+
+          const editorBeforeExternalOpen = editor.value;
+          const externalOpenResult = await window.markdownViewer.openPath({
+            inputPath: externalSmokeImagePath,
+            basePath: basePathSelect.value
+          });
+          const externalFileOpensExternally = Boolean(externalOpenResult && externalOpenResult.external) &&
+            externalOpenResult.fileName === 'diagram.svg' &&
+            editor.value === editorBeforeExternalOpen;
+
           return {
             ready: Boolean(window.__markdownViewerReady),
             startupFileLoaded,
@@ -426,6 +478,8 @@ function createWindow() {
               Boolean(deleteBasePathButton),
             pathBaseSaveWorks,
             pathInputOpenWorks,
+            absolutePathOpenKeepsBase,
+            externalFileOpensExternally,
             panelBarsRemoved: document.querySelectorAll('.panel-heading').length === 0,
             wordCountInStatusbar: Boolean(wordCount) &&
               document.querySelector('.statusbar #wordCount') === wordCount &&
@@ -569,7 +623,12 @@ ipcMain.handle("file:open", async () => {
 });
 
 ipcMain.handle("file:open-linked", async (_event, payload) => {
-  const { filePath, hash } = validateLinkedFilePayload(payload);
+  const { filePath, hash, external } = validateLinkedFilePayload(payload);
+  if (external) {
+    await openPathExternally(filePath);
+    return { external: true, fileName: path.basename(filePath), filePath };
+  }
+
   const file = await readMarkdownFile(filePath);
   currentDocumentPath = file.filePath;
   rememberDocumentPath(file.filePath);
@@ -580,7 +639,12 @@ ipcMain.handle("file:open-linked", async (_event, payload) => {
 });
 
 ipcMain.handle("file:open-path", async (_event, payload) => {
-  const filePath = validateOpenPathPayload(payload);
+  const { filePath, external } = validateOpenPathPayload(payload);
+  if (external) {
+    await openPathExternally(filePath);
+    return { external: true, fileName: path.basename(filePath), filePath };
+  }
+
   const file = await readMarkdownFile(filePath);
   currentDocumentPath = file.filePath;
   rememberDocumentPath(file.filePath);
@@ -717,6 +781,46 @@ ipcMain.handle("image:load", async (_event, payload) => {
   return `data:${mime};base64,${data.toString("base64")}`;
 });
 
+function buildEditContextMenu(params) {
+  const editFlags = params.editFlags || {};
+  const hasSelection = Boolean(params.selectionText && params.selectionText.trim());
+  const template = [];
+
+  if (params.isEditable) {
+    template.push(
+      { role: "cut", label: "잘라내기", enabled: Boolean(editFlags.canCut) },
+      { role: "copy", label: "복사", enabled: Boolean(editFlags.canCopy) },
+      { role: "paste", label: "붙여넣기", enabled: Boolean(editFlags.canPaste) },
+      { type: "separator" },
+      { role: "selectAll", label: "모두 선택", enabled: Boolean(editFlags.canSelectAll) },
+    );
+  } else if (hasSelection) {
+    template.push({ role: "copy", label: "복사", enabled: Boolean(editFlags.canCopy) });
+  }
+
+  if (template.length === 0) {
+    return null;
+  }
+
+  return Menu.buildFromTemplate(template);
+}
+
+async function openPathExternally(filePath) {
+  const stat = await fs.stat(filePath);
+  if (!stat.isFile()) {
+    throw new Error("선택한 경로가 파일이 아닙니다.");
+  }
+
+  if (isSmokeTest || isSecondInstanceSmoke) {
+    return;
+  }
+
+  const errorMessage = await shell.openPath(filePath);
+  if (errorMessage) {
+    throw new Error(errorMessage);
+  }
+}
+
 function validateSavePayload(payload, fallbackName = "document.md") {
   if (!payload || typeof payload !== "object") {
     throw new Error("저장할 데이터가 없습니다.");
@@ -815,14 +919,23 @@ function validateLinkedFilePayload(payload) {
     : resolveRelativeLocalLinkPath(sourceFilePath, basePath, linkPath);
 
   const extension = path.extname(filePath).toLowerCase();
-  if (!supportedOpenExtensions.has(extension)) {
-    throw new Error("Local links can open Markdown or text files only.");
+  if (supportedOpenExtensions.has(extension)) {
+    return {
+      filePath,
+      hash,
+      external: false,
+    };
   }
 
-  return {
-    filePath,
-    hash,
-  };
+  if (externalOpenExtensions.has(extension)) {
+    return {
+      filePath,
+      hash,
+      external: true,
+    };
+  }
+
+  throw new Error("Local links can open Markdown, text, or supported document/image files only.");
 }
 
 function validateOpenPathPayload(payload) {
@@ -842,11 +955,21 @@ function validateOpenPathPayload(payload) {
   }
 
   const extension = path.extname(filePath).toLowerCase();
-  if (!supportedOpenExtensions.has(extension)) {
-    throw new Error("Markdown 또는 text 파일만 열 수 있습니다.");
+  if (supportedOpenExtensions.has(extension)) {
+    return {
+      filePath,
+      external: false,
+    };
   }
 
-  return filePath;
+  if (externalOpenExtensions.has(extension)) {
+    return {
+      filePath,
+      external: true,
+    };
+  }
+
+  throw new Error("열 수 없는 파일 형식입니다.");
 }
 
 function parseLocalLinkHref(href) {

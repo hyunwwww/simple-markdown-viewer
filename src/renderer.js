@@ -647,8 +647,9 @@ function setEditorCollapsed(collapsed, { persist = true, announce = true } = {})
   workspace.classList.toggle("editor-collapsed", collapsed);
   editorPanel.hidden = collapsed;
   splitter.hidden = collapsed;
-  sourceToggleButton.textContent = collapsed ? "원문 펼치기" : "원문 접기";
+  sourceToggleButton.textContent = "원문";
   sourceToggleButton.title = collapsed ? "왼쪽 원문 프레임 펼치기" : "왼쪽 원문 프레임 접기";
+  sourceToggleButton.setAttribute("aria-label", sourceToggleButton.title);
   sourceToggleButton.setAttribute("aria-expanded", String(!collapsed));
   sourceToggleButton.setAttribute("aria-pressed", String(collapsed));
 
@@ -802,6 +803,10 @@ async function handleOpenPath(event) {
       inputPath,
       basePath: activeBasePath,
     });
+    if (file && file.external) {
+      setStatus(`외부 앱에서 열었습니다: ${file.fileName}`);
+      return;
+    }
     loadDocument(file, "경로 열기 완료");
   } catch (error) {
     setStatus(`경로 열기 실패: ${error.message}`);
@@ -1420,17 +1425,23 @@ function renderOutlineFromCurrentPreview() {
 function toggleTheme() {
   const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = nextTheme;
-  themeButton.textContent = nextTheme === "dark" ? "라이트 모드" : "다크 모드";
-  themeButton.setAttribute("aria-pressed", String(nextTheme === "dark"));
+  setThemeButtonState(nextTheme);
   localStorage.setItem("theme", nextTheme);
+}
+
+function setThemeButtonState(theme) {
+  const buttonLabel = theme === "dark" ? "라이트 모드" : "다크 모드";
+  themeButton.textContent = theme === "dark" ? "☀" : "☾";
+  themeButton.title = buttonLabel;
+  themeButton.setAttribute("aria-label", buttonLabel);
+  themeButton.setAttribute("aria-pressed", String(theme === "dark"));
 }
 
 function restoreTheme() {
   const storedTheme = localStorage.getItem("theme");
   const theme = storedTheme || "dark";
   document.documentElement.dataset.theme = theme;
-  themeButton.textContent = theme === "dark" ? "라이트 모드" : "다크 모드";
-  themeButton.setAttribute("aria-pressed", String(theme === "dark"));
+  setThemeButtonState(theme);
 }
 
 function openSearch({ runExistingSearch = true } = {}) {
@@ -1701,6 +1712,10 @@ async function openLocalPreviewLink(href) {
       sourceFilePath: currentFilePath,
       basePath: activeBasePath,
     });
+    if (file && file.external) {
+      setStatus(`외부 앱에서 열었습니다: ${file.fileName}`);
+      return;
+    }
     loadDocument(file, "Local link opened");
   } catch (error) {
     setStatus(`Local link open failed: ${error.message}`);
@@ -1740,6 +1755,18 @@ function handleGlobalKeydown(event) {
   if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key === "F4") {
     event.preventDefault();
     toggleOutline();
+    return;
+  }
+
+  if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key === "F3") {
+    event.preventDefault();
+    toggleEditorPanel();
+    return;
+  }
+
+  if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key === "F2") {
+    event.preventDefault();
+    toggleTranslation();
     return;
   }
 
